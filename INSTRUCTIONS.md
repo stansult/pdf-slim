@@ -1,297 +1,287 @@
-# pdf-slim consolidation handoff
+# pdf-slim project handoff
 
 ## Objective
 
-Consolidate the two existing PDF-processing scripts into one reliable, configurable shell script. The default quality mode must prioritize preserving the PDF's visible appearance. More aggressive compression must be available only through explicit options.
+Build one reliable, configurable Bash command for reducing PDF file sizes with
+Ghostscript. The default quality policy must prioritize preserving the visible
+appearance of the source PDF. More aggressive, lossy compression must be
+available only through explicit options.
 
-The project will be moved out of Dropbox before work continues. Start the next session from the relocated `pdf-slim` directory and treat that directory as the project root.
+The active project and command are named **pdf-slim**. The old name `pdf_low`
+applies only to the preserved legacy filenames.
 
-## Current state
+## Project location and access requirement
 
-The directory currently contains:
-
-- `pdf_low.sh` — converts matching PDFs into an output directory. Its normal mode uses Ghostscript's `/ebook` preset; its `bw` mode converts output to grayscale.
-- `pdf_low_replace.sh` — recursively processes PDFs, replacing an original only when the converted output is smaller. It currently uses Ghostscript's `/printer` preset and records processed paths in `processed_pdfs.log`.
-- `processed_pdfs.log` — runtime history created by the replacement script.
-- `INSTRUCTIONS.md` — this handoff and implementation plan.
-
-The scripts were moved into this directory without modification. No Git repository has been initialized yet.
-
-## Agreed direction
-
-1. Make this directory a standalone Git repository after it is relocated.
-2. Commit the untouched scripts as the historical baseline before changing them.
-3. Replace the two scripts with one canonical `pdf-slim.sh` supporting explicit options.
-4. Fix conversion/error-handling and replacement safety before designing quality modes.
-5. Default to a quality-preserving mode. Reduced-quality modes must be opt-in.
-6. Do not retain a permanent `legacy/` directory; Git history will preserve the original scripts.
-7. `processed_pdfs.log` is runtime state and should not be committed.
-
-## Phase 1: initialize Git and preserve the baseline
-
-Do this only after confirming that the shell's current directory is the relocated `pdf-slim` directory.
-
-1. Inspect the directory and ensure the expected files are present.
-2. Initialize a local Git repository.
-3. Create `.gitignore` with at least:
-
-   ```gitignore
-   processed_pdfs.log
-   *.tmp.pdf
-   .DS_Store
-   ```
-
-   If the final temporary-file naming convention differs, update the ignore rule accordingly.
-4. Add a concise `README.md` describing the current legacy scripts and noting that consolidation is pending.
-5. Commit the untouched scripts, `.gitignore`, `README.md`, and this instruction file as the baseline. Do not commit `processed_pdfs.log`.
-6. Confirm that `git status` is clean apart from the ignored runtime log.
-
-Suggested baseline commit message:
+The project root is:
 
 ```text
-Preserve original PDF scripts before consolidation
+/Users/stansult/dev/pdf-slim
 ```
 
-Creating a GitHub remote is optional at this point. Local Git history should exist before implementation begins. Do not publish the repository unless the user asks.
+Start the next Codex thread from that exact directory and verify normal file
+writes with the patch editor before claiming the workspace is ready. The thread
+that produced this handoff retained a sandbox write grant for the former path
+`/Users/stansult/dev/pdf_low`; terminal reads and elevated Git commands worked in
+the renamed directory, but ordinary patch edits did not. This was discovered
+only when implementation was about to begin.
 
-## Phase 2: define the consolidated interface
+A temporary compatibility symlink currently exists:
 
-Implement one canonical command:
+```text
+/Users/stansult/dev/pdf_low -> /Users/stansult/dev/pdf-slim
+```
+
+It was created solely while diagnosing the stale workspace grant. After a new
+thread confirms direct write access to `/Users/stansult/dev/pdf-slim`, remove
+the symlink without affecting the real project directory. Resolve and verify
+both paths before removing anything.
+
+## Repository state
+
+This is a standalone Git repository with a public GitHub remote:
+
+```text
+origin  https://github.com/stansult/pdf-slim.git
+```
+
+Repository page:
+
+```text
+https://github.com/stansult/pdf-slim
+```
+
+The current branch is `master`, tracking `origin/master`. At the last verified
+state, the working tree was clean and synchronized with the remote except for
+the ignored runtime log.
+
+Existing commits:
+
+```text
+3b28637 Rename project to pdf-slim
+c3743d4 Move legacy scripts aside for consolidation
+0550bfb Preserve original PDF scripts before consolidation
+```
+
+Do not rewrite this history. Continue with small, logical commits.
+
+## Current files
+
+```text
+pdf-slim.sh                    New active script; non-functional stub only
+legacy/pdf_low.sh              Untouched original conversion script
+legacy/pdf_low_replace.sh      Untouched original replacement script
+processed_pdfs.log             Ignored legacy runtime history
+README.md                      Short project/layout description
+INSTRUCTIONS.md                This handoff
+.gitignore                     Runtime/temp exclusions
+```
+
+The active script currently prints `pdf-slim: implementation pending` and exits
+with status 2. No functional consolidated implementation has been committed or
+left in the working tree. Several attempted patches failed because of the stale
+sandbox path; they did not modify `pdf-slim.sh`.
+
+## Preserved legacy baseline
+
+The two files under `legacy/` must remain unchanged for reference until the
+user explicitly agrees they are no longer needed. Their verified SHA-256
+hashes are:
+
+```text
+65af5f5bd76ed853cce0d64215dda6dfd34c54ec5973c74fac1dc875d7c4a930  legacy/pdf_low.sh
+ac1fa2f24df52d656712d932be2688d26225cf1e0f3e1951d1e37c8a70798bba  legacy/pdf_low_replace.sh
+```
+
+The legacy scripts contain known quoting, traversal, error-handling, temporary
+file, replacement, and logging problems. They are reference material, not code
+to extend. Do not clean their trailing whitespace or rename them.
+
+`processed_pdfs.log` is preexisting runtime data. It is ignored by Git and must
+not be deleted, reset, rewritten, or assumed accurate without user approval.
+
+## Environment last observed
+
+```text
+Ghostscript:        10.07.1 at /usr/local/bin/gs
+GNU timeout:        9.11 at /usr/local/bin/timeout
+GNU gtimeout:       /usr/local/bin/gtimeout
+realpath:           /bin/realpath
+grealpath:          /usr/local/bin/grealpath
+greadlink:          /usr/local/bin/greadlink
+shellcheck:         not installed
+```
+
+Do not install dependencies without user approval. Recheck these commands in
+the new thread because environment state can change.
+
+## Agreed interface and behavior
+
+The canonical command will be:
 
 ```bash
 pdf-slim.sh [options] [FILE_OR_DIRECTORY ...]
 ```
 
-The intended interface is:
+The user has approved these decisions:
 
-- `--output-dir DIR` — write converted PDFs under a separate directory.
-- `--replace` — replace each original only if the successfully converted PDF is smaller.
+1. Require exactly one of `--output-dir DIR` or `--replace`. There is no implicit
+   destructive action and no implicit default output directory.
+2. `--replace` and `--output-dir` are mutually exclusive.
+3. Match PDF extensions case-insensitively, including `.PDF`.
+4. Skip symlinks with a clear warning; do not follow them.
+5. Preserve relative directory structure beneath `--output-dir`.
+6. Never overwrite an existing output destination silently.
+7. Keep processed-file logging limited to `--replace` initially.
+8. Preserve is the default quality policy; grayscale and reduced quality are
+   always explicit.
+
+Planned options:
+
+- `--output-dir DIR` — publish converted PDFs under a separate directory.
+- `--replace` — replace an original only after a valid conversion is strictly
+  smaller.
 - `--recursive` — descend into supplied directories.
-- `--force` or `--reprocess` — ignore entries in the processed-file log.
-- `--timeout DURATION` — conversion timeout, default `1h`.
-- `--dry-run` — show which files and actions would be attempted without running Ghostscript or modifying files.
-- `--quality MODE` — quality policy; initially implement only the safe default or defer all modes until Phase 5.
-- `--grayscale` — explicitly convert colors to grayscale; keep this independent of quality mode.
-- `--help` — document usage, defaults, behavior, and exit statuses.
-- `--version` — optional but useful once the interface stabilizes.
+- `--force` or `--reprocess` — bypass replacement-log checks without destroying
+  the log.
+- `--timeout DURATION` — per-file conversion timeout, default `1h`.
+- `--dry-run` — show planned files/actions without Ghostscript or writes.
+- `--quality MODE` — initially accept only `preserve`; add lossy modes later.
+- `--grayscale` — explicit and independent of quality mode.
+- `--help` — document usage, defaults, behavior, and statuses.
+- `--version` — add once useful; a development version is acceptable early.
+- `--` — terminate option parsing so leading-hyphen filenames are safe.
 
-Interface rules:
+Accept multiple files and directories. Correctly handle spaces, tabs, glob
+characters, and leading hyphens. Use Bash arrays and null-delimited traversal;
+do not use string-based file loops, parse `ls`, or globally change `IFS`.
 
-1. The default must be non-destructive. Prefer requiring either `--output-dir DIR` or `--replace`; alternatively, use a documented default output directory. Discuss this choice with the user before finalizing it.
-2. `--replace` and `--output-dir` should be mutually exclusive unless a clear combined meaning is established.
-3. Accept multiple files and directories safely, including names containing spaces, tabs, glob characters, and leading hyphens.
-4. Support `--` to terminate option parsing.
-5. Do not use string-based file loops or change global `IFS`. Use arrays and null-delimited traversal.
-6. Decide with the user whether `.PDF` and other case variants should count as PDFs. Case-insensitive matching is recommended.
+One output-layout detail remains to implement carefully: when several supplied
+roots would map different sources to the same destination, detect the collision
+and fail safely rather than choosing or overwriting one silently.
 
-Commit the interface/refactor independently from later quality-policy work.
+## Implementation sequence
 
-## Phase 3: repair Ghostscript and timeout error handling
+### 1. Verify the new workspace before editing
 
-This is the first functional implementation priority. The legacy replacement script has two related bugs:
+1. Confirm `pwd` is `/Users/stansult/dev/pdf-slim`.
+2. Confirm `git status`, remote, branch, and files.
+3. Verify the two legacy hashes above.
+4. Test a harmless patch edit/revert in the real project path to prove ordinary
+   write access, not merely terminal read access.
+5. Inspect and then remove only the temporary `/Users/stansult/dev/pdf_low`
+   symlink. Never operate recursively on it.
+6. Reconfirm the working tree before implementation.
 
-1. `output=$(...)` captures standard output but not standard error, while Ghostscript usually emits diagnostics on standard error.
-2. The command's exit status is not retained and checked reliably. A failed Ghostscript process can create a partial output and the function can later return success accidentally.
+### 2. Interface and safe traversal
 
-The consolidated conversion function must:
+Implement argument parsing, help, validation, case-insensitive PDF discovery,
+null-delimited recursive/non-recursive traversal, symlink refusal, dry-run, and
+safe destination mapping. Do not run Ghostscript in dry-run. Commit this layer
+independently.
 
-1. Capture standard output and standard error together using `2>&1`.
-2. save the command status immediately after command substitution:
+### 3. Reliable Ghostscript conversion
 
-   ```bash
-   output=$(command ... 2>&1)
-   status=$?
-   ```
+Use no `-dPDFSETTINGS` preset in the initial `preserve` mode and do not force
+PDF 1.4 compatibility. Add grayscale arguments only when requested.
 
-   Do not run another command before assigning `status`.
-3. Treat every nonzero status as a failed conversion.
-4. Identify and report timeout status separately where practical.
-5. Print the captured Ghostscript diagnostics on failure.
-6. Verify that the output exists, is a regular file, and is nonempty even when the command reports success.
-7. Return failure if any validation fails.
-8. Never allow warning-string searches to replace exit-status checking. `-dPDFSTOPONWARNING` may remain if supported by the installed Ghostscript, but it is an additional safeguard, not the primary success test.
-
-### Portability note
-
-The existing scripts assume macOS with GNU utilities installed by Homebrew (`greadlink`, `grealpath`, and GNU `timeout`). Before coding, inspect the actual environment:
+Detect `timeout` or `gtimeout`; never silently run without the requested
+timeout. Capture stdout and stderr together and save status immediately:
 
 ```bash
-command -v gs
-command -v timeout
-command -v gtimeout
-command -v realpath
-command -v grealpath
+output=$(command ... 2>&1)
+status=$?
 ```
 
-Prefer shell-native path handling where feasible. If a timeout program is required, detect `timeout` and `gtimeout` and fail with an actionable message when neither exists. Do not silently run without the requested timeout.
+Treat all nonzero statuses as failures, identify timeout separately where
+practical, print captured diagnostics, and require the result to be a nonempty
+regular file. Warning-string inspection and `-dPDFSTOPONWARNING` can supplement
+but never replace exit-status checks.
 
-## Phase 4: make replacement and cleanup safe
+### 4. Safe output publication and replacement
 
-For `--replace`:
+For replacement, create the candidate in the original file's directory with a
+collision-resistant `mktemp` name. Track exactly that temporary path and clean
+it on failure or interruption. Never delete the original first. After complete
+validation, compare byte sizes; use one same-filesystem `mv` only when the
+candidate is strictly smaller. Otherwise delete only the candidate and retain
+the original unchanged.
 
-1. Create the candidate output in the same directory as the original. This makes the final rename occur on the same filesystem.
-2. Give temporary files a collision-resistant name, preferably using `mktemp` with a narrowly scoped template.
-3. Install cleanup handling so normal errors and interruptions remove only the known temporary file.
-4. Never remove the original before the candidate has passed all checks.
-5. After successful conversion:
-   - determine old and new byte sizes using a portable method;
-   - if the candidate is strictly smaller, replace the original with a single `mv` operation;
-   - otherwise remove the candidate and leave the original untouched.
-6. Preserve original permissions where appropriate. Investigate whether ownership, timestamps, extended attributes, and macOS metadata need preservation; discuss any tradeoffs before promising preservation.
-7. Refuse unsafe cases such as input and output resolving to the same temporary pathname.
-8. Do not follow unexpected symlinks without an explicit, documented policy.
+Investigate and discuss metadata preservation before promising permissions,
+ownership, timestamps, extended attributes, or macOS metadata behavior.
 
-The old sequence `rm original` followed by `mv candidate original` must not be retained because it creates an avoidable window in which the original is gone.
+For output mode, preserve relative structure, validate before publishing, and
+refuse existing destinations and mapping collisions. Never publish a partial
+candidate under its final name.
 
-For `--output-dir`:
+### 5. Correct replacement logging
 
-1. Define whether directory structure is preserved for recursive inputs. Preserving relative structure is recommended to avoid basename collisions.
-2. Never overwrite an existing destination silently. Choose an explicit policy such as skip by default and add a future `--overwrite` option if needed.
-3. Validate the candidate completely before publishing it at the destination pathname.
+Log only terminal successful outcomes: replaced, or valid conversion retained
+because it was not smaller. Never log failure, timeout, invalid/empty output, or
+interruption. `--force` bypasses checks without erasing history.
 
-## Phase 5: correct processed-file logging
+Before implementing the final format, discuss with the user whether to use a
+null-delimited log and whether records should include size and modification time
+so changed files are not incorrectly skipped. Do not trust old log entries as
+proof of successful conversion.
 
-The existing log contains absolute file paths and currently records a file even after conversion errors. Change this behavior:
+### 6. Quality modes
 
-1. Keep the log beside the script/project data unless a more appropriate user-state directory is selected later.
-2. Do not commit the log.
-3. Log a file only after a terminal successful outcome:
-   - conversion succeeded and the original was replaced; or
-   - conversion succeeded but the candidate was not smaller, so the original was intentionally retained.
-4. Do not log failures, timeouts, invalid outputs, or interrupted conversions; they must remain eligible for retry.
-5. Append safely and ensure each record is unambiguous. Plain newline-separated paths cannot represent filenames containing newlines. Decide whether that edge case should be supported via a null-delimited log or documented as unsupported.
-6. Decide whether logging applies only to `--replace` or also to output-directory mode. Replacement-only logging is the simpler default.
-7. Implement `--force`/`--reprocess` to bypass log checks without destroying the log.
-8. Consider file modification after logging. A path-only entry can incorrectly suppress a changed file. A stronger future format could include path, size, and modification time. Discuss this before expanding scope.
+Do not finalize lossy presets until interface, conversion, replacement, output,
+cleanup, and logging behavior are tested.
 
-The existing `processed_pdfs.log` may contain useful history. Preserve it during migration, but do not assume every entry represents a successful conversion because of the legacy behavior.
+- `preserve` (default): no intentional image downsampling and normally no
+  `-dPDFSETTINGS`.
+- `balanced`: future explicit opt-in with documented modest loss.
+- `small`: future explicit opt-in with stronger reduction.
+- `--grayscale`: orthogonal explicit visible change.
 
-## Phase 6: quality modes
+Review current official Ghostscript `pdfwrite` documentation and test candidate
+settings on representative local PDFs before choosing values. Discuss values
+with the user before making defaults. Never claim lossy output is visually
+identical.
 
-Do not finalize the quality presets until Phases 2–5 are working and tested.
+### 7. Tests and documentation
 
-### Required policy
+Add automated shell tests or a documented test harness using Ghostscript test
+doubles where useful. At minimum cover:
 
-- Default mode: closest practical visual match to the input, with no intentional image downsampling.
-- Reduced-quality modes: explicit opt-in.
-- Grayscale: explicit and orthogonal because it visibly changes the document.
+- single/multiple files and directories;
+- spaces, tabs, glob characters, leading hyphens, and uppercase `.PDF`;
+- non-PDF, missing input, empty directory, and recursive traversal;
+- success with smaller/equal/larger output;
+- nonzero exit with no output and with partial output;
+- timeout and zero-status empty output;
+- interruption and precise temporary cleanup;
+- byte-identical original after every failure or non-smaller result;
+- refusal to overwrite output or follow symlinks;
+- no log update after failure/timeout;
+- dry-run performs no writes and launches no Ghostscript process.
 
-Proposed names:
-
-- `--quality preserve` — default. Omit `-dPDFSETTINGS`, or use `/default` only if tests show a reason. Do not force `-dCompatibilityLevel=1.4`; current Ghostscript defaults should generally be preferred.
-- `--quality balanced` — modest reduction intended to remain clean on ordinary screens and prints.
-- `--quality small` — stronger reduction aimed at large scans and image-heavy documents.
-
-Avoid assuming `/prepress` means maximum fidelity. Ghostscript documentation states that the closest result to the original is obtained without `-dPDFSETTINGS` or with `/default`, and that every preset can alter the input.
-
-For `balanced` and `small`, prefer explicit image downsampling and compression controls over relying only on `/printer` and `/ebook`. Explicit controls make behavior easier to explain and less dependent on preset definitions. Before choosing values:
-
-1. Confirm the installed Ghostscript version.
-2. Review current official Ghostscript `pdfwrite` documentation.
-3. Build a representative local test set:
-   - vector/text-heavy PDF;
-   - high-resolution scanned document;
-   - photographic PDF;
-   - charts and fine linework;
-   - transparency and annotation examples if available.
-4. Compare file sizes and rendered output at realistic zoom levels and print-like resolution.
-5. Discuss candidate resolution/compression values with the user before making them defaults.
-
-Do not claim any lossy mode is visually identical. Name and document the tradeoff plainly.
-
-## Phase 7: validation
-
-Add a test script or documented test procedure. At minimum verify:
-
-### Input handling
-
-- One PDF file.
-- Multiple PDF files.
-- Filename containing spaces.
-- Filename containing tabs or glob characters.
-- Filename beginning with `-`.
-- Non-PDF input.
-- Missing input.
-- Empty directory.
-- Recursive directory traversal.
-- Uppercase `.PDF`, according to the chosen policy.
-
-### Conversion outcomes
-
-- Ghostscript success with smaller output.
-- Ghostscript success with equal or larger output.
-- Ghostscript nonzero exit with no output.
-- Ghostscript nonzero exit with a partial output.
-- Timeout.
-- Empty output despite zero status, using a test double if necessary.
-- User interruption and temporary-file cleanup.
-
-### Safety
-
-- Original remains byte-for-byte untouched after every failed conversion.
-- Original remains untouched when the candidate is not smaller.
-- Existing output destination is not silently overwritten.
-- Temporary files are removed after success, failure, timeout, and interruption.
-- Log is not updated after failure or timeout.
-- `--dry-run` performs no writes and runs no Ghostscript conversion.
-
-### Quality
-
-- Compare rendered pages between original and `preserve` output.
-- Inspect text, fine lines, gradients, photographs, scans, and transparency.
-- Record output sizes for each proposed quality mode.
-
-Use `shellcheck` if available. Run syntax validation with:
+Always run:
 
 ```bash
 bash -n pdf-slim.sh
 ```
 
-Do not install dependencies or publish files without user approval.
+Use `shellcheck` if it becomes available, but do not install it without approval.
+Expand `README.md` after behavior stabilizes.
 
-## Phase 8: documentation and cleanup
+## Safety constraints
 
-1. Expand `README.md` with prerequisites, installation, examples, quality-mode descriptions, replacement safety, logging behavior, and limitations.
-2. Include examples such as:
-
-   ```bash
-   ./pdf-slim.sh --output-dir ./new document.pdf
-   ./pdf-slim.sh --replace --recursive ./archive
-   ./pdf-slim.sh --replace --quality small huge-scan.pdf
-   ./pdf-slim.sh --output-dir ./gray --grayscale report.pdf
-   ./pdf-slim.sh --dry-run --replace --recursive .
-   ```
-
-3. After the consolidated script passes validation, remove the obsolete replacement script from the working tree. Its original content remains in Git history.
-4. Decide whether the preexisting `processed_pdfs.log` should remain in the relocated working directory, be archived outside the repository, or be reset. Do not delete it without user approval.
-5. Commit logical changes separately. Suggested sequence:
-   - baseline originals;
-   - consolidated interface and safe file traversal;
-   - reliable conversion/error handling;
-   - atomic replacement and corrected logging;
-   - quality modes;
-   - tests and documentation;
-   - removal of obsolete script.
-6. Once the user is satisfied, optionally create a private or public GitHub repository and push it. Ask before creating or publishing a remote repository.
-
-## Important implementation constraints
-
-- Preserve user data above all else. Never replace an original after a failed, timed-out, interrupted, empty, or otherwise invalid conversion.
-- Quote every pathname and option value correctly.
-- Prefer Bash arrays and `find -print0`/null-delimited processing over word splitting.
-- Avoid parsing `ls` output.
-- Avoid deleting broad paths or unresolved variables.
-- Keep quality-preserving behavior as the default.
+- Preserve user PDFs above all else.
+- Never replace an original after a failed, timed-out, interrupted, empty, or
+  otherwise invalid conversion.
+- Quote every pathname and option value.
+- Avoid broad deletion commands, unresolved destructive paths, and `rm` followed
+  by `mv` replacement sequences.
 - Keep destructive behavior explicit through `--replace`.
-- Make changes in small commits so each stage is reviewable and reversible.
-- Before implementing a choice that materially changes CLI behavior or quality, present the proposed behavior to the user for discussion.
+- Do not modify legacy files or the preexisting runtime log.
+- Do not create/push another remote or install dependencies without user approval.
+- Present material CLI, metadata, logging-format, and quality choices to the user
+  before finalizing them.
 
-## Next-session starting checklist
+## Immediate next step
 
-The next Codex thread should:
-
-1. Read this file and both legacy scripts completely.
-2. Confirm the folder has been relocated outside Dropbox.
-3. Inspect available Ghostscript and GNU utility versions without modifying the system.
-4. Initialize Git and make the untouched baseline commit.
-5. Stop and report the baseline state before beginning functional changes, unless the user explicitly asks to continue through subsequent phases.
+The next thread should perform the workspace/access verification checklist,
+clean up the temporary compatibility symlink after resolving it safely, and
+report the verified state. Only then begin the interface/safe-traversal commit.
