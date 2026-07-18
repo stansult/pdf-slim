@@ -1,10 +1,10 @@
-# pdf_low consolidation handoff
+# pdf-slim consolidation handoff
 
 ## Objective
 
 Consolidate the two existing PDF-processing scripts into one reliable, configurable shell script. The default quality mode must prioritize preserving the PDF's visible appearance. More aggressive compression must be available only through explicit options.
 
-The project will be moved out of Dropbox before work continues. Start the next session from the relocated `pdf_low` directory and treat that directory as the project root.
+The project will be moved out of Dropbox before work continues. Start the next session from the relocated `pdf-slim` directory and treat that directory as the project root.
 
 ## Current state
 
@@ -21,7 +21,7 @@ The scripts were moved into this directory without modification. No Git reposito
 
 1. Make this directory a standalone Git repository after it is relocated.
 2. Commit the untouched scripts as the historical baseline before changing them.
-3. Replace the two scripts with one canonical `pdf_low.sh` supporting explicit options.
+3. Replace the two scripts with one canonical `pdf-slim.sh` supporting explicit options.
 4. Fix conversion/error-handling and replacement safety before designing quality modes.
 5. Default to a quality-preserving mode. Reduced-quality modes must be opt-in.
 6. Do not retain a permanent `legacy/` directory; Git history will preserve the original scripts.
@@ -29,7 +29,7 @@ The scripts were moved into this directory without modification. No Git reposito
 
 ## Phase 1: initialize Git and preserve the baseline
 
-Do this only after confirming that the shell's current directory is the relocated `pdf_low` directory.
+Do this only after confirming that the shell's current directory is the relocated `pdf-slim` directory.
 
 1. Inspect the directory and ensure the expected files are present.
 2. Initialize a local Git repository.
@@ -59,7 +59,7 @@ Creating a GitHub remote is optional at this point. Local Git history should exi
 Implement one canonical command:
 
 ```bash
-pdf_low.sh [options] [FILE_OR_DIRECTORY ...]
+pdf-slim.sh [options] [FILE_OR_DIRECTORY ...]
 ```
 
 The intended interface is:
@@ -244,7 +244,7 @@ Add a test script or documented test procedure. At minimum verify:
 Use `shellcheck` if available. Run syntax validation with:
 
 ```bash
-bash -n pdf_low.sh
+bash -n pdf-slim.sh
 ```
 
 Do not install dependencies or publish files without user approval.
@@ -255,14 +255,14 @@ Do not install dependencies or publish files without user approval.
 2. Include examples such as:
 
    ```bash
-   ./pdf_low.sh --output-dir ./new document.pdf
-   ./pdf_low.sh --replace --recursive ./archive
-   ./pdf_low.sh --replace --quality small huge-scan.pdf
-   ./pdf_low.sh --output-dir ./gray --grayscale report.pdf
-   ./pdf_low.sh --dry-run --replace --recursive .
+   ./pdf-slim.sh --output-dir ./new document.pdf
+   ./pdf-slim.sh --replace --recursive ./archive
+   ./pdf-slim.sh --replace --quality small huge-scan.pdf
+   ./pdf-slim.sh --output-dir ./gray --grayscale report.pdf
+   ./pdf-slim.sh --dry-run --replace --recursive .
    ```
 
-3. After the consolidated script passes validation, remove `pdf_low_replace.sh` from the working tree. Its original content remains in Git history.
+3. After the consolidated script passes validation, remove the obsolete replacement script from the working tree. Its original content remains in Git history.
 4. Decide whether the preexisting `processed_pdfs.log` should remain in the relocated working directory, be archived outside the repository, or be reset. Do not delete it without user approval.
 5. Commit logical changes separately. Suggested sequence:
    - baseline originals;
