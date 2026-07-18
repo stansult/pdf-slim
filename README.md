@@ -1,14 +1,14 @@
 # pdf_low
 
-This repository currently preserves two legacy PDF-processing scripts:
+This repository preserves two legacy PDF-processing scripts under `legacy/`:
 
-- `pdf_low.sh` converts matching PDFs into a separate output directory, using
+- `legacy/pdf_low.sh` converts matching PDFs into a separate output directory, using
   Ghostscript's `/ebook` preset by default or an optional grayscale mode.
-- `pdf_low_replace.sh` recursively converts PDFs and replaces an original only
+- `legacy/pdf_low_replace.sh` recursively converts PDFs and replaces an original only
   when the converted file is smaller.
 
-The scripts are preserved here as an untouched historical baseline.
-Consolidation into one safer, configurable command is pending.
+The legacy scripts remain unchanged for reference. A new top-level `pdf_low.sh`
+is the starting point for consolidation into one safer, configurable command.
 
 `processed_pdfs.log` is runtime history from the legacy replacement script and
 is intentionally excluded from version control.

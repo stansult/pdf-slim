@@ -1,39 +1,13 @@
-#!/bin/bash
-# 1st parameter − files (by default "*.pdf"); use double quotes with masks
-# 2nd parameter − where to write results (by default "new" directory)
-# 3rd parameter − what to do ([lowres|bw], by default: lowres)
+#!/usr/bin/env bash
 
-# if [ $# -eq 0 ]; then
-#   echo "No arguments provided"
-#   exit 1
-# fi
+# Consolidated pdf_low implementation starts here.
+# See INSTRUCTIONS.md for the working plan.
 
-files=$1
-if [[ $files == "" || $files == "-" ]] ; then
-    files="*.pdf"
-fi
+set -o nounset
 
-dir=$2
-if [[ $dir == "" || $dir == "-" ]] ; then
-    dir="new"
-fi
+main() {
+    printf '%s\n' "pdf_low: implementation pending" >&2
+    return 2
+}
 
-what=$3
-if [[ $what != "bw" ]] ; then
-    what="lowres"
-fi
-
-for f in $files
-do
-  if [ -f "$f" ]; then
-    if [[ $f == *.pdf ]]; then
-      mkdir -p $dir
-      echo "Processing $f ..."
-      if [[ $what == "bw" ]] ; then
-        gs -sDEVICE=pdfwrite -sProcessColorModel=DeviceGray -sColorConversionStrategy=Gray -dCompatibilityLevel=1.4 -dNOPAUSE -dQUIET -dBATCH -sOutputFile="$dir/$f" "$f"
-      else
-        gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dPDFSETTINGS=/ebook -dNOPAUSE -dQUIET -dBATCH -sOutputFile="$dir/$f" "$f"
-      fi
-    fi
-  fi
-done
+main "$@"
