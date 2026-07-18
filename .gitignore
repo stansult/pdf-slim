@@ -1,0 +1,3 @@
+processed_pdfs.log
+*.tmp.pdf
+.DS_Store
