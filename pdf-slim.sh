@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Safe interface and traversal layer. Ghostscript conversion is implemented in
-# a later phase; until then, only --dry-run can complete processing.
+# Safe interface, traversal, and Ghostscript conversion layer. Publication is
+# implemented in a later phase; until then, only --dry-run can complete.
 
 set -o nounset
 
@@ -43,6 +43,84 @@ error() {
 
 warn() {
     printf '%s: warning: %s\n' "$PROGRAM" "$*" >&2
+}
+
+find_command() {
+    local candidate
+
+    for candidate in "$@"; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            command -v "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+remove_candidate() {
+    local candidate=$1
+
+    if [[ -n $candidate && ( -e $candidate || -L $candidate ) ]]; then
+        rm -f -- "$candidate"
+    fi
+}
+
+convert_pdf() {
+    local source=$1
+    local candidate=$2
+    local timeout_command=$3
+    local gs_command=$4
+    local timeout_duration=$5
+    local grayscale=$6
+    local output status
+    local -a gs_args
+
+    if [[ ! -f $candidate || -L $candidate || -s $candidate ]]; then
+        error "candidate must be an existing empty regular file: $candidate"
+        return 1
+    fi
+
+    gs_args=(
+        -dBATCH
+        -dNOPAUSE
+        -dSAFER
+        -sDEVICE=pdfwrite
+    )
+    if (( grayscale )); then
+        gs_args+=(
+            -sColorConversionStrategy=Gray
+            -dProcessColorModel=/DeviceGray
+        )
+    fi
+    gs_args+=("-sOutputFile=$candidate" -f "$source")
+
+    output=$("$timeout_command" -- "$timeout_duration" \
+        "$gs_command" "${gs_args[@]}" 2>&1)
+    status=$?
+
+    if (( status != 0 )); then
+        if (( status == 124 )); then
+            error "conversion timed out after $timeout_duration: $source"
+        else
+            error "Ghostscript failed with status $status: $source"
+        fi
+        if [[ -n $output ]]; then
+            printf '%s\n' "$output" >&2
+        fi
+        remove_candidate "$candidate"
+        return 1
+    fi
+
+    if [[ ! -f $candidate || -L $candidate || ! -s $candidate ]]; then
+        error "Ghostscript produced no valid nonempty PDF candidate: $source"
+        if [[ -n $output ]]; then
+            printf '%s\n' "$output" >&2
+        fi
+        remove_candidate "$candidate"
+        return 1
+    fi
+
+    return 0
 }
 
 is_pdf_name() {
@@ -334,9 +412,6 @@ main() {
         return 2
     fi
 
-    # Retained for the conversion phase; parsing them now stabilizes the CLI.
-    : "$timeout_duration" "$grayscale"
-
     for arg in "${inputs[@]}"; do
         if [[ -L $arg ]]; then
             warn "skipping symlink: $arg"
@@ -366,10 +441,22 @@ main() {
     plan_actions || return 2
 
     if (( ! dry_run )); then
-        error 'conversion is not implemented yet; use --dry-run to inspect the plan'
+        local timeout_command gs_command
+        timeout_command=$(find_command timeout gtimeout) || {
+            error 'GNU timeout is required (install timeout or gtimeout)'
+            return 3
+        }
+        gs_command=$(find_command gs) || {
+            error 'Ghostscript is required (gs was not found)'
+            return 3
+        }
+        : "$timeout_command" "$gs_command" "$timeout_duration" "$grayscale"
+        error 'safe output publication is not implemented yet; use --dry-run'
         return 3
     fi
     return 0
 }
 
-main "$@"
+if [[ ${PDF_SLIM_TESTING:-0} != 1 ]]; then
+    main "$@"
+fi

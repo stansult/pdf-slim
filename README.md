@@ -5,9 +5,10 @@ sizes with Ghostscript. Its default policy will preserve the visible appearance
 of the source; grayscale and lossy compression will always require explicit
 options.
 
-> **Development status:** file discovery, validation, destination mapping, and
-> dry-run planning are implemented. Ghostscript conversion and file replacement
-> are not implemented yet, so processing currently requires `--dry-run`.
+> **Development status:** file discovery, validation, destination mapping,
+> dry-run planning, and the tested Ghostscript conversion engine are implemented.
+> Safe output publication and replacement are not implemented yet, so processing
+> currently requires `--dry-run`.
 
 ## Current capabilities
 
@@ -94,6 +95,6 @@ proof that a file was successfully processed.
 
 ## Roadmap
 
-The next phases add reliable Ghostscript execution and timeout handling, safe
-temporary output publication, atomic replacement, corrected replacement
-logging, tests, and finally explicit lossy quality modes.
+The next phases add safe temporary output publication, atomic replacement,
+metadata preservation, corrected replacement logging, broader tests, and
+finally explicit lossy quality modes.
