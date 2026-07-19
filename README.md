@@ -55,13 +55,87 @@ Current options:
 --                  End option parsing
 ```
 
-Examples:
+## Use cases
+
+Preview a replacement run without starting Ghostscript or changing anything:
+
+```bash
+./pdf-slim.sh --dry-run --replace report.pdf
+```
+
+Create a converted copy while leaving the original untouched:
 
 ```bash
 ./pdf-slim.sh --output-dir ./slimmed report.pdf
+```
+
+Convert several individual PDFs into one output directory:
+
+```bash
+./pdf-slim.sh --output-dir ./slimmed invoice.pdf handbook.PDF "meeting notes.pdf"
+```
+
+Recursively convert a directory while preserving its internal structure:
+
+```bash
 ./pdf-slim.sh --output-dir ./slimmed --recursive ./documents
+```
+
+Replace an original only when the validated conversion is strictly smaller:
+
+```bash
+./pdf-slim.sh --replace large-report.pdf
+```
+
+Process every PDF beneath an archive. Successfully handled, unchanged files
+recorded in `processed_pdfs.log` are skipped on later runs:
+
+```bash
 ./pdf-slim.sh --replace --recursive ./archive
+```
+
+Retry files even when their current path, size, and modification time match the
+replacement log:
+
+```bash
+./pdf-slim.sh --replace --force --recursive ./archive
+```
+
+Preserve permissions and timestamps using the default `standard` policy:
+
+```bash
+./pdf-slim.sh --replace --preserve-metadata standard report.pdf
+```
+
+On macOS, also require ownership, file flags, ACLs, and extended attributes such
+as Finder tags to be preserved:
+
+```bash
 ./pdf-slim.sh --replace --preserve-metadata all tagged-report.pdf
+```
+
+Create output without copying source metadata, letting the new file retain its
+naturally created metadata:
+
+```bash
+./pdf-slim.sh --output-dir ./slimmed --preserve-metadata none report.pdf
+```
+
+Explicitly create a grayscale PDF:
+
+```bash
+./pdf-slim.sh --output-dir ./grayscale --grayscale color-report.pdf
+```
+
+Set a shorter per-file conversion limit for a batch:
+
+```bash
+./pdf-slim.sh --replace --recursive --timeout 10m ./incoming
+```
+
+Use `--` before a filename beginning with a hyphen:
+
+```bash
 ./pdf-slim.sh --dry-run --replace -- -leading-hyphen.pdf
 ```
 
@@ -98,7 +172,7 @@ pdf-slim.sh                 Active command
 legacy/pdf_low.sh           Preserved original output-directory script
 legacy/pdf_low_replace.sh   Preserved original replacement script
 INSTRUCTIONS.md             Development handoff and implementation plan
-processed_pdfs.log          Ignored legacy runtime history
+processed_pdfs.log          Ignored active replacement history (created on demand)
 ```
 
 The files under `legacy/` remain usable reference tools during development. The
