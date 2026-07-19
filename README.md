@@ -7,8 +7,8 @@ options.
 
 > **Development status:** file discovery, validation, destination mapping,
 > Ghostscript conversion, atomic output publication, and strictly-smaller
-> replacement are implemented. Replacement logging and lossy quality modes are
-> still pending.
+> replacement and binary-safe replacement logging are implemented. Lossy
+> quality modes are still pending.
 
 ## Current capabilities
 
@@ -22,6 +22,8 @@ options.
 - Refuses existing output files and collisions between supplied roots.
 - Plans operations without running Ghostscript or writing output when using
   `--dry-run`.
+- Records successful replacement outcomes and skips only unchanged files with
+  matching canonical path, size, and modification time.
 
 ## Usage
 
@@ -78,6 +80,11 @@ preserves permissions plus access and modification timestamps. On macOS, `all`
 also preserves and verifies ownership, file flags, ACLs, and extended attributes
 such as Finder tags.
 
+The replacement log starts with a null-terminated format marker. Each successful
+replacement outcome then appends three null-terminated fields: canonical path,
+current byte size, and modification time. A failed, timed-out, interrupted, or
+invalid conversion never adds a record.
+
 ## Requirements
 
 The command uses Bash, Ghostscript, GNU `timeout` (available as `timeout` or
@@ -95,10 +102,11 @@ processed_pdfs.log          Ignored legacy runtime history
 ```
 
 The files under `legacy/` remain usable reference tools during development. The
-existing `processed_pdfs.log` is intentionally ignored and is not treated as
-reliable proof that a file was successfully processed.
+preexisting local runtime history is archived (and remains excluded from Git)
+as `legacy/processed_pdfs.log`. The active script creates or reuses an ignored
+root-level `processed_pdfs.log` in its null-delimited versioned format. `--force`
+bypasses matching records without erasing history.
 
 ## Roadmap
 
-The next phases add null-delimited replacement logging with file identity data,
-broader tests, and finally explicit lossy quality modes.
+The next phases add broader tests and explicit lossy quality modes.

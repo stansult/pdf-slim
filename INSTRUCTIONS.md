@@ -67,28 +67,28 @@ Do not rewrite this history. Continue with small, logical commits.
 ## Current files
 
 ```text
-pdf-slim.sh                    New active script; non-functional stub only
-legacy/pdf_low.sh              Untouched original conversion script
-legacy/pdf_low_replace.sh      Untouched original replacement script
-processed_pdfs.log             Ignored legacy runtime history
+pdf-slim.sh                    Active functional consolidated script
+legacy/pdf_low.sh              Usable legacy conversion script
+legacy/pdf_low_replace.sh      Preserved legacy replacement script
+legacy/processed_pdfs.log      Ignored archived legacy runtime history
+processed_pdfs.log             Ignored active replacement log (created on demand)
 README.md                      Short project/layout description
 INSTRUCTIONS.md                This handoff
 .gitignore                     Runtime/temp exclusions
 ```
 
-The active script currently prints `pdf-slim: implementation pending` and exits
-with status 2. No functional consolidated implementation has been committed or
-left in the working tree. Several attempted patches failed because of the stale
-sandbox path; they did not modify `pdf-slim.sh`.
+The active script implements safe traversal, dry-run planning, reliable
+Ghostscript conversion, atomic output publication, strictly-smaller replacement,
+metadata preservation, and versioned null-delimited replacement logging.
 
 ## Preserved legacy baseline
 
-The two files under `legacy/` must remain unchanged for reference until the
-user explicitly agrees they are no longer needed. Their verified SHA-256
-hashes are:
+The legacy scripts remain usable while consolidation is completed. The user
+intentionally changed `legacy/pdf_low.sh` from `/ebook` to `/printer` in commit
+`030b997`. Their current verified SHA-256 hashes are:
 
 ```text
-65af5f5bd76ed853cce0d64215dda6dfd34c54ec5973c74fac1dc875d7c4a930  legacy/pdf_low.sh
+6b6cb630e848997f5ecfb4e7362ecb4011984dc0693a1258cfe4a770bf0200d8  legacy/pdf_low.sh
 ac1fa2f24df52d656712d932be2688d26225cf1e0f3e1951d1e37c8a70798bba  legacy/pdf_low_replace.sh
 ```
 
@@ -96,8 +96,10 @@ The legacy scripts contain known quoting, traversal, error-handling, temporary
 file, replacement, and logging problems. They are reference material, not code
 to extend. Do not clean their trailing whitespace or rename them.
 
-`processed_pdfs.log` is preexisting runtime data. It is ignored by Git and must
-not be deleted, reset, rewritten, or assumed accurate without user approval.
+The preexisting runtime history was moved, with user approval, to
+`legacy/processed_pdfs.log`. It remains ignored and unmodified. The active
+script creates or reuses a root-level `processed_pdfs.log` in its new versioned
+null-delimited format.
 
 ## Environment last observed
 

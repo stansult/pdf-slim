@@ -7,6 +7,7 @@ set -o nounset
 
 PROGRAM=${0##*/}
 VERSION='0.1.0-dev'
+LOG_MAGIC='pdf-slim-log-v1'
 
 usage() {
     cat <<EOF
@@ -82,6 +83,157 @@ file_identity() {
 
 file_times() {
     stat -f '%a:%m' -- "$1" 2>/dev/null || stat -c '%X:%Y' -- "$1"
+}
+
+file_mtime() {
+    stat -f '%m' -- "$1" 2>/dev/null || stat -c '%Y' -- "$1"
+}
+
+acquire_log_lock() {
+    local log_file=$1
+    local lock_dir=$log_file.lock
+    local attempts=0
+
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        ((attempts += 1))
+        if (( attempts >= 50 )); then
+            error "could not acquire replacement-log lock: $lock_dir"
+            return 1
+        fi
+        sleep 0.1
+    done
+    ACTIVE_LOG_LOCK=$lock_dir
+}
+
+release_log_lock() {
+    if [[ -n ${ACTIVE_LOG_LOCK:-} ]]; then
+        rmdir "$ACTIVE_LOG_LOCK" 2>/dev/null || true
+        ACTIVE_LOG_LOCK=''
+    fi
+}
+
+validate_log_header() {
+    local log_file=$1
+    local header
+
+    if [[ -L $log_file || ! -f $log_file ]]; then
+        error "replacement log is not a regular file: $log_file"
+        return 1
+    fi
+    IFS= read -r -d '' header <"$log_file" || {
+        error "replacement log has an invalid header: $log_file"
+        return 1
+    }
+    if [[ $header != "$LOG_MAGIC" ]]; then
+        error "replacement log uses an unsupported format: $log_file"
+        return 1
+    fi
+}
+
+ensure_replacement_log() {
+    local log_file=$1
+    local old_umask
+
+    if [[ -e $log_file || -L $log_file ]]; then
+        validate_log_header "$log_file"
+        return
+    fi
+    old_umask=$(umask)
+    umask 077
+    printf '%s\0' "$LOG_MAGIC" >"$log_file"
+    local status=$?
+    umask "$old_umask"
+    (( status == 0 )) || {
+        error "could not create replacement log: $log_file"
+        return 1
+    }
+}
+
+replacement_log_contains() {
+    local log_file=$1
+    local source=$2
+    local canonical size mtime header record_path record_size record_mtime
+    local status=1
+
+    [[ -e $log_file || -L $log_file ]] || return 1
+    canonical=$(realpath -- "$source") || return 2
+    size=$(file_size "$source") || return 2
+    mtime=$(file_mtime "$source") || return 2
+
+    acquire_log_lock "$log_file" || return 2
+    if ! validate_log_header "$log_file"; then
+        release_log_lock
+        return 2
+    fi
+    exec 3<"$log_file" || {
+        release_log_lock
+        return 2
+    }
+    IFS= read -r -d '' header <&3 || status=2
+    while (( status != 2 )) && IFS= read -r -d '' record_path <&3; do
+        IFS= read -r -d '' record_size <&3 || { status=2; break; }
+        IFS= read -r -d '' record_mtime <&3 || { status=2; break; }
+        if [[ $record_path == "$canonical" && $record_size == "$size" && \
+            $record_mtime == "$mtime" ]]; then
+            status=0
+            break
+        fi
+    done
+    exec 3<&-
+    release_log_lock
+    if (( status == 2 )); then
+        error "replacement log contains an incomplete record: $log_file"
+    fi
+    return "$status"
+}
+
+append_replacement_log() {
+    local log_file=$1
+    local source=$2
+    local canonical size mtime
+
+    canonical=$(realpath -- "$source") || return 1
+    size=$(file_size "$source") || return 1
+    mtime=$(file_mtime "$source") || return 1
+    acquire_log_lock "$log_file" || return 1
+    if ! ensure_replacement_log "$log_file"; then
+        release_log_lock
+        return 1
+    fi
+    if ! printf '%s\0%s\0%s\0' "$canonical" "$size" "$mtime" >>"$log_file"; then
+        error "could not append replacement log: $log_file"
+        release_log_lock
+        return 1
+    fi
+    release_log_lock
+}
+
+filter_logged_sources() {
+    local log_file=$1
+    local i status
+    local -a kept_sources=()
+    local -a kept_source_keys=()
+    local -a kept_relatives=()
+
+    [[ -e $log_file || -L $log_file ]] || return 0
+    i=0
+    while (( i < ${#sources[@]} )); do
+        replacement_log_contains "$log_file" "${sources[$i]}"
+        status=$?
+        if (( status == 0 )); then
+            printf 'skipped unchanged file recorded as processed: %s\n' "${sources[$i]}"
+        elif (( status == 1 )); then
+            kept_sources[${#kept_sources[@]}]=${sources[$i]}
+            kept_source_keys[${#kept_source_keys[@]}]=${source_keys[$i]}
+            kept_relatives[${#kept_relatives[@]}]=${relatives[$i]}
+        else
+            return 1
+        fi
+        ((i += 1))
+    done
+    sources=("${kept_sources[@]}")
+    source_keys=("${kept_source_keys[@]}")
+    relatives=("${kept_relatives[@]}")
 }
 
 prepare_candidate_metadata() {
@@ -467,6 +619,7 @@ clear_active_files() {
     remove_candidate "${ACTIVE_METADATA_REFERENCE:-}"
     ACTIVE_CANDIDATE=''
     ACTIVE_METADATA_REFERENCE=''
+    release_log_lock
 }
 
 process_source() {
@@ -608,10 +761,12 @@ main() {
     local -a destination_sources=()
     local -a destinations=()
     local output_root_key=''
+    local log_file script_path
     local timeout_command gs_command
     local failures=0 i
     ACTIVE_CANDIDATE=''
     ACTIVE_METADATA_REFERENCE=''
+    ACTIVE_LOG_LOCK=''
 
     while (( $# )); do
         arg=$1
@@ -762,7 +917,18 @@ main() {
 
     (( discovery_failed == 0 )) || return 2
     if (( ${#sources[@]} == 0 )); then
-        warn 'no PDF files selected'
+        warn 'no PDF files selected for processing'
+        return 0
+    fi
+    script_path=$(realpath -- "$0") || {
+        error 'could not resolve the script path for replacement logging'
+        return 2
+    }
+    log_file=${script_path%/*}/processed_pdfs.log
+    if [[ $mode == replace && $force -eq 0 ]]; then
+        filter_logged_sources "$log_file" || return 2
+    fi
+    if (( ${#sources[@]} == 0 )); then
         return 0
     fi
     plan_actions || return 2
@@ -784,7 +950,14 @@ main() {
     i=0
     while (( i < ${#sources[@]} )); do
         process_source "${sources[$i]}" "${relatives[$i]}" \
-            "${destinations[$i]}" || failures=1
+            "${destinations[$i]}" || {
+            failures=1
+            ((i += 1))
+            continue
+        }
+        if [[ $mode == replace ]]; then
+            append_replacement_log "$log_file" "${sources[$i]}" || failures=1
+        fi
         ((i += 1))
     done
     trap - EXIT HUP INT TERM
