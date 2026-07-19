@@ -53,7 +53,7 @@ fi
 [[ $(shasum -a 256 "$log_file") == "$log_hash" ]]
 
 if FAKE_GS_MODE=partial-failure PATH="$test_dir/bin:$PATH" \
-    "$test_dir/cli/pdf-slim.sh" --replace --force "$source_pdf" >/dev/null 2>&1; then
+    "$test_dir/cli/pdf-slim.sh" --replace --reprocess "$source_pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected forced conversion failure' >&2
     exit 1
 fi

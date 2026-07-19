@@ -19,8 +19,8 @@ Exactly one output mode is required:
 
 Options:
   --recursive        Descend into supplied directories
-  --force,
-  --reprocess        Bypass replacement-log checks (requires --replace)
+  --reprocess        Reprocess files that match the replacement log; all safety
+                      checks remain enabled (requires --replace)
   --timeout DURATION Per-file conversion timeout (default: 1h)
   --dry-run          Print planned actions; run no Ghostscript and write nothing
   --quality MODE     Quality policy; currently only "preserve" is accepted
@@ -747,7 +747,7 @@ main() {
     local metadata_mode='standard'
     local dry_run=0
     local grayscale=0
-    local force=0
+    local reprocess=0
     local recursive=0
     local end_options=0
     local arg directory relative
@@ -798,7 +798,7 @@ main() {
                 mode=replace
                 ;;
             --recursive) recursive=1 ;;
-            --force|--reprocess) force=1 ;;
+            --reprocess) reprocess=1 ;;
             --timeout)
                 if (( $# == 0 )); then
                     error '--timeout requires a duration argument'
@@ -885,8 +885,8 @@ main() {
         error '--timeout duration must not be empty'
         return 2
     fi
-    if (( force )) && [[ $mode != replace ]]; then
-        error '--force/--reprocess requires --replace'
+    if (( reprocess )) && [[ $mode != replace ]]; then
+        error '--reprocess requires --replace'
         return 2
     fi
     if (( ${#inputs[@]} == 0 )); then
@@ -925,7 +925,7 @@ main() {
         return 2
     }
     log_file=${script_path%/*}/processed_pdfs.log
-    if [[ $mode == replace && $force -eq 0 ]]; then
+    if [[ $mode == replace && $reprocess -eq 0 ]]; then
         filter_logged_sources "$log_file" || return 2
     fi
     if (( ${#sources[@]} == 0 )); then

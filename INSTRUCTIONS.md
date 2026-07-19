@@ -143,8 +143,8 @@ Planned options:
 - `--replace` — replace an original only after a valid conversion is strictly
   smaller.
 - `--recursive` — descend into supplied directories.
-- `--force` or `--reprocess` — bypass replacement-log checks without destroying
-  the log.
+- `--reprocess` — bypass replacement-log checks without destroying the log or
+  disabling safety checks.
 - `--timeout DURATION` — per-file conversion timeout, default `1h`.
 - `--dry-run` — show planned files/actions without Ghostscript or writes.
 - `--quality MODE` — initially accept only `preserve`; add lossy modes later.
@@ -219,7 +219,7 @@ candidate under its final name.
 
 Log only terminal successful outcomes: replaced, or valid conversion retained
 because it was not smaller. Never log failure, timeout, invalid/empty output, or
-interruption. `--force` bypasses checks without erasing history.
+interruption. `--reprocess` bypasses checks without erasing history.
 
 Before implementing the final format, discuss with the user whether to use a
 null-delimited log and whether records should include size and modification time

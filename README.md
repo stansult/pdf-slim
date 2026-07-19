@@ -41,18 +41,18 @@ Exactly one output mode is required:
 Current options:
 
 ```text
---recursive         Descend into supplied directories
---force             Bypass replacement-log checks (requires --replace)
---reprocess         Alias for --force
---timeout DURATION  Per-file timeout; defaults to 1h
---dry-run           Print the plan without Ghostscript or output writes
---quality MODE      Currently accepts only preserve
---grayscale         Explicitly convert output to grayscale
---preserve-metadata MODE
-                    Preserve none, basic, standard (default), or all metadata
---help              Show command help
---version           Show the development version
---                  End option parsing
+  --recursive        Descend into supplied directories
+  --reprocess        Reprocess files that match the replacement log; all safety
+                      checks remain enabled (requires --replace)
+  --timeout DURATION Per-file conversion timeout (default: 1h)
+  --dry-run          Print planned actions; run no Ghostscript and write nothing
+  --quality MODE     Quality policy; currently only "preserve" is accepted
+  --grayscale        Request explicit grayscale conversion
+  --preserve-metadata MODE
+                      Preserve none, basic, standard (default), or all metadata
+  --help              Show this help and exit
+  --version           Show the development version and exit
+  --                  End option parsing
 ```
 
 ## Use cases
@@ -98,7 +98,7 @@ Retry files even when their current path, size, and modification time match the
 replacement log:
 
 ```bash
-./pdf-slim.sh --replace --force --recursive ./archive
+./pdf-slim.sh --replace --reprocess --recursive ./archive
 ```
 
 Preserve permissions and timestamps using the default `standard` policy:
@@ -178,8 +178,9 @@ processed_pdfs.log          Ignored active replacement history (created on deman
 The files under `legacy/` remain usable reference tools during development. The
 preexisting local runtime history is archived (and remains excluded from Git)
 as `legacy/processed_pdfs.log`. The active script creates or reuses an ignored
-root-level `processed_pdfs.log` in its null-delimited versioned format. `--force`
-bypasses matching records without erasing history.
+root-level `processed_pdfs.log` in its null-delimited versioned format.
+`--reprocess` bypasses matching records without erasing history or disabling
+safety checks.
 
 ## Roadmap
 
