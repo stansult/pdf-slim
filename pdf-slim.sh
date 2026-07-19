@@ -14,7 +14,7 @@ Usage: $PROGRAM [options] [--] FILE_OR_DIRECTORY ...
 
 Exactly one output mode is required:
   --output-dir DIR   Preserve input-relative paths beneath DIR
-  --replace          Replace originals only after safe conversion (future phase)
+  --replace          Replace originals only when safe conversion is smaller
 
 Options:
   --recursive        Descend into supplied directories
@@ -24,16 +24,18 @@ Options:
   --dry-run          Print planned actions; run no Ghostscript and write nothing
   --quality MODE     Quality policy; currently only "preserve" is accepted
   --grayscale        Request explicit grayscale conversion
+  --preserve-metadata MODE
+                      Preserve none, basic, standard (default), or all metadata
   --help              Show this help and exit
   --version           Show the development version and exit
   --                  End option parsing
 
 PDF extensions are matched case-insensitively. Symlinks are warned about and
 skipped. Existing output files and destination collisions are errors. The
-current development version requires --dry-run because conversion is not yet
-implemented.
+default metadata policy preserves permissions plus access and modification
+timestamps. The "all" metadata mode is currently macOS-specific.
 
-Exit status: 0 success, 2 invalid/unsafe request, 3 conversion unavailable.
+Exit status: 0 success, 1 one or more conversions failed, 2 invalid/unsafe request.
 EOF
 }
 
@@ -63,6 +65,175 @@ remove_candidate() {
     if [[ -n $candidate && ( -e $candidate || -L $candidate ) ]]; then
         rm -f -- "$candidate"
     fi
+}
+
+file_mode() {
+    stat -f '%Lp' -- "$1" 2>/dev/null || stat -c '%a' -- "$1"
+}
+
+file_size() {
+    stat -f '%z' -- "$1" 2>/dev/null || stat -c '%s' -- "$1"
+}
+
+file_identity() {
+    stat -f '%d:%i:%z:%m:%c' -- "$1" 2>/dev/null || \
+        stat -c '%d:%i:%s:%Y:%Z' -- "$1"
+}
+
+file_times() {
+    stat -f '%a:%m' -- "$1" 2>/dev/null || stat -c '%X:%Y' -- "$1"
+}
+
+prepare_candidate_metadata() {
+    local source=$1
+    local candidate=$2
+    local metadata_mode=$3
+    local mode_bits
+
+    case $metadata_mode in
+        none) return 0 ;;
+        basic|standard)
+            mode_bits=$(file_mode "$source") || return 1
+            chmod "$mode_bits" "$candidate"
+            ;;
+        all)
+            # macOS cp preserves mode, ownership where permitted, timestamps,
+            # ACLs, file flags, and extended attributes unless -X is supplied.
+            cp -p "$source" "$candidate" || return 1
+            : >"$candidate"
+            ;;
+    esac
+}
+
+verify_all_metadata() {
+    local source=$1
+    local candidate=$2
+    local source_stat candidate_stat source_attrs candidate_attrs attribute
+    local source_value candidate_value source_acl candidate_acl
+
+    if [[ $(uname -s) != Darwin ]]; then
+        error '--preserve-metadata all is currently supported only on macOS'
+        return 1
+    fi
+    command -v xattr >/dev/null 2>&1 || {
+        error 'xattr is required for --preserve-metadata all'
+        return 1
+    }
+
+    source_stat=$(stat -f '%u:%g:%Lp:%f' -- "$source") || return 1
+    candidate_stat=$(stat -f '%u:%g:%Lp:%f' -- "$candidate") || return 1
+    if [[ $source_stat != "$candidate_stat" ]]; then
+        error "ownership or permissions could not be preserved: $source"
+        return 1
+    fi
+
+    source_attrs=$(xattr "$source") || return 1
+    candidate_attrs=$(xattr "$candidate") || return 1
+    if [[ $source_attrs != "$candidate_attrs" ]]; then
+        error "extended attributes could not be preserved: $source"
+        return 1
+    fi
+    while IFS= read -r attribute; do
+        [[ -n $attribute ]] || continue
+        source_value=$(xattr -px "$attribute" "$source") || return 1
+        candidate_value=$(xattr -px "$attribute" "$candidate") || return 1
+        if [[ $source_value != "$candidate_value" ]]; then
+            error "extended attribute could not be preserved ($attribute): $source"
+            return 1
+        fi
+    done <<<"$source_attrs"
+
+    source_acl=$(ls -lde "$source") || return 1
+    candidate_acl=$(ls -lde "$candidate") || return 1
+    if [[ $source_acl == *$'\n'* ]]; then
+        source_acl=${source_acl#*$'\n'}
+    else
+        source_acl=''
+    fi
+    if [[ $candidate_acl == *$'\n'* ]]; then
+        candidate_acl=${candidate_acl#*$'\n'}
+    else
+        candidate_acl=''
+    fi
+    if [[ $source_acl != "$candidate_acl" ]]; then
+        error "ACL could not be preserved: $source"
+        return 1
+    fi
+}
+
+finalize_candidate_metadata() {
+    local source=$1
+    local candidate=$2
+    local metadata_mode=$3
+    local timestamp_reference=$4
+    local mode_bits candidate_mode source_times candidate_times
+
+    case $metadata_mode in
+        none) return 0 ;;
+        basic)
+            mode_bits=$(file_mode "$source") || return 1
+            chmod "$mode_bits" "$candidate" || return 1
+            candidate_mode=$(file_mode "$candidate") || return 1
+            [[ $candidate_mode == "$mode_bits" ]]
+            ;;
+        standard)
+            mode_bits=$(file_mode "$source") || return 1
+            chmod "$mode_bits" "$candidate" || return 1
+            touch -r "$timestamp_reference" "$candidate" || return 1
+            candidate_mode=$(file_mode "$candidate") || return 1
+            source_times=$(file_times "$timestamp_reference") || return 1
+            candidate_times=$(file_times "$candidate") || return 1
+            [[ $candidate_mode == "$mode_bits" && $candidate_times == "$source_times" ]]
+            ;;
+        all)
+            touch -r "$timestamp_reference" "$candidate" || return 1
+            source_times=$(file_times "$timestamp_reference") || return 1
+            candidate_times=$(file_times "$candidate") || return 1
+            [[ $candidate_times == "$source_times" ]] || return 1
+            verify_all_metadata "$source" "$candidate"
+            ;;
+    esac
+}
+
+ensure_output_parent() {
+    local relative=$1
+    local parent=${relative%/*}
+    local current=$output_dir
+    local component
+
+    if [[ $parent == "$relative" ]]; then
+        parent=''
+    fi
+    if [[ -L $current ]]; then
+        error "output directory must not be a symlink: $current"
+        return 1
+    fi
+    mkdir -p "$current" || return 1
+
+    while [[ -n $parent ]]; do
+        if [[ $parent == */* ]]; then
+            component=${parent%%/*}
+            parent=${parent#*/}
+        else
+            component=$parent
+            parent=''
+        fi
+        [[ -n $component && $component != . ]] || continue
+        if [[ $component == .. ]]; then
+            error "unsafe output-relative path: $relative"
+            return 1
+        fi
+        current=$current/$component
+        if [[ -L $current ]]; then
+            error "refusing symlink in output path: $current"
+            return 1
+        fi
+        if [[ -e $current && ! -d $current ]]; then
+            error "output parent is not a directory: $current"
+            return 1
+        fi
+        [[ -d $current ]] || mkdir "$current" || return 1
+    done
 }
 
 convert_pdf() {
@@ -275,9 +446,15 @@ plan_actions() {
             done
             destination_keys[${#destination_keys[@]}]=$destination_key
             destination_sources[${#destination_sources[@]}]=$source
-            printf 'would convert: %s -> %s\n' "$source" "$destination"
+            destinations[${#destinations[@]}]=$destination
+            if (( dry_run )); then
+                printf 'would convert: %s -> %s\n' "$source" "$destination"
+            fi
         else
-            printf 'would replace if smaller: %s\n' "$source"
+            destinations[${#destinations[@]}]=$source
+            if (( dry_run )); then
+                printf 'would replace if smaller: %s\n' "$source"
+            fi
         fi
         ((i += 1))
     done
@@ -285,11 +462,136 @@ plan_actions() {
     (( failures == 0 ))
 }
 
+clear_active_files() {
+    remove_candidate "${ACTIVE_CANDIDATE:-}"
+    remove_candidate "${ACTIVE_METADATA_REFERENCE:-}"
+    ACTIVE_CANDIDATE=''
+    ACTIVE_METADATA_REFERENCE=''
+}
+
+process_source() {
+    local source=$1
+    local relative=$2
+    local destination=$3
+    local candidate='' candidate_dir source_before source_after
+    local timestamp_reference=''
+    local original_size candidate_size
+
+    if [[ $mode == output ]]; then
+        ensure_output_parent "$relative" || return 1
+        candidate_dir=${destination%/*}
+        [[ $candidate_dir != "$destination" ]] || candidate_dir=.
+    else
+        candidate_dir=${source%/*}
+        [[ $candidate_dir != "$source" ]] || candidate_dir=.
+    fi
+
+    candidate=$(mktemp "$candidate_dir/.pdf-slim.XXXXXX") || {
+        error "could not create candidate beside destination: $destination"
+        return 1
+    }
+    ACTIVE_CANDIDATE=$candidate
+
+    if [[ $metadata_mode == standard || $metadata_mode == all ]]; then
+        timestamp_reference=$(mktemp "${TMPDIR:-/tmp}/pdf-slim-metadata.XXXXXX") || {
+            error "could not preserve source timestamps: $source"
+            clear_active_files
+            return 1
+        }
+        ACTIVE_METADATA_REFERENCE=$timestamp_reference
+        touch -r "$source" "$timestamp_reference" || {
+            error "could not capture source timestamps: $source"
+            clear_active_files
+            return 1
+        }
+    fi
+
+    prepare_candidate_metadata "$source" "$candidate" "$metadata_mode" || {
+        error "could not prepare requested metadata: $source"
+        clear_active_files
+        return 1
+    }
+    source_before=$(file_identity "$source") || {
+        error "could not inspect source before conversion: $source"
+        clear_active_files
+        return 1
+    }
+    convert_pdf "$source" "$candidate" "$timeout_command" "$gs_command" \
+        "$timeout_duration" "$grayscale" || {
+        clear_active_files
+        return 1
+    }
+    source_after=$(file_identity "$source") || source_after='missing'
+    if [[ $source_before != "$source_after" ]]; then
+        error "source changed during conversion; leaving it untouched: $source"
+        clear_active_files
+        return 1
+    fi
+    finalize_candidate_metadata "$source" "$candidate" "$metadata_mode" \
+        "$timestamp_reference" || {
+        error "could not preserve requested metadata: $source"
+        clear_active_files
+        return 1
+    }
+
+    if [[ $mode == replace ]]; then
+        original_size=$(file_size "$source") || {
+            error "could not determine original size: $source"
+            clear_active_files
+            return 1
+        }
+        candidate_size=$(file_size "$candidate") || {
+            error "could not determine converted size: $source"
+            clear_active_files
+            return 1
+        }
+        if (( candidate_size >= original_size )); then
+            printf 'kept original (converted file was not smaller): %s\n' "$source"
+            clear_active_files
+            return 0
+        fi
+    fi
+
+    if [[ $mode == output && ( -e $destination || -L $destination ) ]]; then
+        error "output destination appeared during conversion: $destination"
+        clear_active_files
+        return 1
+    fi
+    if [[ $mode == replace ]]; then
+        source_after=$(file_identity "$source") || source_after='missing'
+        if [[ $source_before != "$source_after" ]]; then
+            error "source changed before replacement; leaving it untouched: $source"
+            clear_active_files
+            return 1
+        fi
+    fi
+    mv "$candidate" "$destination" || {
+        error "could not publish converted PDF: $destination"
+        clear_active_files
+        return 1
+    }
+    ACTIVE_CANDIDATE=''
+    remove_candidate "$timestamp_reference"
+    ACTIVE_METADATA_REFERENCE=''
+    if [[ $mode == replace ]]; then
+        printf 'replaced: %s\n' "$source"
+    else
+        printf 'created: %s\n' "$destination"
+    fi
+}
+
+cleanup_active_candidate() {
+    local status=$?
+    clear_active_files
+    exit "$status"
+}
+
 main() {
     local output_dir=''
     local mode=''
     local timeout_duration='1h'
     local quality='preserve'
+    local metadata_mode='standard'
     local dry_run=0
     local grayscale=0
     local force=0
@@ -304,7 +606,12 @@ main() {
     local -a relatives=()
     local -a destination_keys=()
     local -a destination_sources=()
+    local -a destinations=()
     local output_root_key=''
+    local timeout_command gs_command
+    local failures=0 i
+    ACTIVE_CANDIDATE=''
+    ACTIVE_METADATA_REFERENCE=''
 
     while (( $# )); do
         arg=$1
@@ -357,6 +664,15 @@ main() {
                 shift
                 ;;
             --grayscale) grayscale=1 ;;
+            --preserve-metadata)
+                if (( $# == 0 )); then
+                    error '--preserve-metadata requires a mode argument'
+                    parse_failed=1
+                    break
+                fi
+                metadata_mode=$1
+                shift
+                ;;
             --help) usage; return 0 ;;
             --version) printf '%s %s\n' "$PROGRAM" "$VERSION"; return 0 ;;
             --) end_options=1 ;;
@@ -397,6 +713,17 @@ main() {
     fi
     if [[ $quality != preserve ]]; then
         error "unsupported quality mode: $quality (currently only preserve is accepted)"
+        return 2
+    fi
+    case $metadata_mode in
+        none|basic|standard|all) ;;
+        *)
+            error "unsupported metadata mode: $metadata_mode"
+            return 2
+            ;;
+    esac
+    if [[ $metadata_mode == all && $(uname -s) != Darwin ]]; then
+        error '--preserve-metadata all is currently supported only on macOS'
         return 2
     fi
     if [[ -z $timeout_duration ]]; then
@@ -440,21 +767,28 @@ main() {
     fi
     plan_actions || return 2
 
-    if (( ! dry_run )); then
-        local timeout_command gs_command
-        timeout_command=$(find_command timeout gtimeout) || {
-            error 'GNU timeout is required (install timeout or gtimeout)'
-            return 3
-        }
-        gs_command=$(find_command gs) || {
-            error 'Ghostscript is required (gs was not found)'
-            return 3
-        }
-        : "$timeout_command" "$gs_command" "$timeout_duration" "$grayscale"
-        error 'safe output publication is not implemented yet; use --dry-run'
-        return 3
-    fi
-    return 0
+    (( dry_run )) && return 0
+
+    timeout_command=$(find_command timeout gtimeout) || {
+        error 'GNU timeout is required (install timeout or gtimeout)'
+        return 1
+    }
+    gs_command=$(find_command gs) || {
+        error 'Ghostscript is required (gs was not found)'
+        return 1
+    }
+    trap cleanup_active_candidate EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    i=0
+    while (( i < ${#sources[@]} )); do
+        process_source "${sources[$i]}" "${relatives[$i]}" \
+            "${destinations[$i]}" || failures=1
+        ((i += 1))
+    done
+    trap - EXIT HUP INT TERM
+    (( failures == 0 ))
 }
 
 if [[ ${PDF_SLIM_TESTING:-0} != 1 ]]; then

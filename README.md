@@ -6,9 +6,9 @@ of the source; grayscale and lossy compression will always require explicit
 options.
 
 > **Development status:** file discovery, validation, destination mapping,
-> dry-run planning, and the tested Ghostscript conversion engine are implemented.
-> Safe output publication and replacement are not implemented yet, so processing
-> currently requires `--dry-run`.
+> Ghostscript conversion, atomic output publication, and strictly-smaller
+> replacement are implemented. Replacement logging and lossy quality modes are
+> still pending.
 
 ## Current capabilities
 
@@ -32,8 +32,8 @@ pdf-slim.sh [options] [--] FILE_OR_DIRECTORY ...
 Exactly one output mode is required:
 
 ```text
---output-dir DIR   Plan output beneath DIR, preserving relative paths
---replace          Plan replacement of originals when converted files are smaller
+--output-dir DIR   Write output beneath DIR, preserving relative paths
+--replace          Replace originals only when converted files are smaller
 ```
 
 Current options:
@@ -45,39 +45,44 @@ Current options:
 --timeout DURATION  Per-file timeout; defaults to 1h
 --dry-run           Print the plan without Ghostscript or output writes
 --quality MODE      Currently accepts only preserve
---grayscale         Request explicit grayscale conversion in a future conversion
+--grayscale         Explicitly convert output to grayscale
+--preserve-metadata MODE
+                    Preserve none, basic, standard (default), or all metadata
 --help              Show command help
 --version           Show the development version
 --                  End option parsing
 ```
 
-Examples that work in the current dry-run phase:
+Examples:
 
 ```bash
-./pdf-slim.sh --dry-run --output-dir ./slimmed report.pdf
-./pdf-slim.sh --dry-run --output-dir ./slimmed --recursive ./documents
-./pdf-slim.sh --dry-run --replace --recursive ./archive
+./pdf-slim.sh --output-dir ./slimmed report.pdf
+./pdf-slim.sh --output-dir ./slimmed --recursive ./documents
+./pdf-slim.sh --replace --recursive ./archive
+./pdf-slim.sh --replace --preserve-metadata all tagged-report.pdf
 ./pdf-slim.sh --dry-run --replace -- -leading-hyphen.pdf
 ```
 
-Exit statuses are `0` for success, `2` for invalid or unsafe requests, and `3`
-when a real conversion is requested before the conversion layer is available.
+Exit statuses are `0` for success, `1` when one or more conversions fail, and
+`2` for invalid or unsafe requests.
 
 ## Safety model
 
-The eventual `--replace` implementation will replace an original only after a
-successful, validated conversion is strictly smaller. It will never remove the
-original first. Output mode will never silently overwrite a destination or
-publish a partial conversion.
+`--replace` replaces an original only after a successful, validated conversion
+is strictly smaller. It never removes the original first. Output mode never
+silently overwrites a destination or publishes a partial conversion.
 
-Those conversion and publication guarantees describe the planned next phases;
-the current implementation performs planning only.
+Metadata preservation is strict: if the selected metadata cannot be preserved,
+the candidate is discarded and the original remains untouched. `standard`
+preserves permissions plus access and modification timestamps. On macOS, `all`
+also preserves and verifies ownership, file flags, ACLs, and extended attributes
+such as Finder tags.
 
 ## Requirements
 
-The current traversal layer uses Bash, `find`, and `realpath`. It is tested with
-macOS Bash 3.2 and newer Bash versions. Ghostscript will be required once the
-conversion phase is implemented.
+The command uses Bash, Ghostscript, GNU `timeout` (available as `timeout` or
+`gtimeout`), `find`, and `realpath`. It is tested with macOS Bash 3.2 and newer
+Bash versions. The `all` metadata mode additionally uses macOS `xattr`.
 
 ## Project layout
 
@@ -89,12 +94,11 @@ INSTRUCTIONS.md             Development handoff and implementation plan
 processed_pdfs.log          Ignored legacy runtime history
 ```
 
-The files under `legacy/` remain untouched reference material. The existing
-`processed_pdfs.log` is intentionally ignored and is not treated as reliable
-proof that a file was successfully processed.
+The files under `legacy/` remain usable reference tools during development. The
+existing `processed_pdfs.log` is intentionally ignored and is not treated as
+reliable proof that a file was successfully processed.
 
 ## Roadmap
 
-The next phases add safe temporary output publication, atomic replacement,
-metadata preservation, corrected replacement logging, broader tests, and
-finally explicit lossy quality modes.
+The next phases add null-delimited replacement logging with file identity data,
+broader tests, and finally explicit lossy quality modes.
