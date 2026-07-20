@@ -6,7 +6,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='0.1.0-dev'
+VERSION='1.0.0'
 LOG_MAGIC='pdf-slim-log-v1'
 
 usage() {
@@ -28,7 +28,7 @@ Options:
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   --help              Show this help and exit
-  --version           Show the development version and exit
+  --version           Show the version and exit
   --                  End option parsing
 
 PDF extensions are matched case-insensitively. Symlinks are warned about and

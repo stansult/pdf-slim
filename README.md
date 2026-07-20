@@ -1,14 +1,11 @@
 # pdf-slim
 
-`pdf-slim` is becoming a safe, configurable Bash command for reducing PDF file
-sizes with Ghostscript. Its default policy will preserve the visible appearance
+`pdf-slim` is a safe, configurable Bash command for reducing PDF file
+sizes with Ghostscript. Its default policy preserves the visible appearance
 of the source; grayscale and lossy compression will always require explicit
 options.
 
-> **Development status:** file discovery, validation, destination mapping,
-> Ghostscript conversion, atomic output publication, and strictly-smaller
-> replacement, binary-safe replacement logging, and explicit quality policies
-> are implemented.
+Current stable version: `1.0.0`.
 
 ## Current capabilities
 
@@ -51,7 +48,7 @@ Current options:
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   --help              Show this help and exit
-  --version           Show the development version and exit
+  --version           Show the version and exit
   --                  End option parsing
 ```
 
@@ -177,6 +174,33 @@ The command uses Bash, Ghostscript, GNU `timeout` (available as `timeout` or
 `gtimeout`), `find`, and `realpath`. It is tested with macOS Bash 3.2 and newer
 Bash versions. The `all` metadata mode additionally uses macOS `xattr`.
 
+## Installation
+
+Make the script executable and add its directory to `PATH`, or invoke it by its
+path:
+
+```bash
+chmod +x pdf-slim.sh
+export PATH="/path/to/pdf-slim:$PATH"
+pdf-slim.sh --version
+```
+
+For a persistent installation, add the `export PATH=...` line to the profile
+file used by your shell.
+
+## Testing
+
+Run the complete automated suite with:
+
+```bash
+./tests/run.sh
+```
+
+The suite uses disposable files and a Ghostscript command double to cover CLI
+validation and traversal, conversion failures and timeouts, atomic publication,
+metadata preservation, interruption cleanup, and replacement logging. It runs
+on macOS Bash 3.2 and newer Bash versions.
+
 ## Project layout
 
 ```text
@@ -185,6 +209,7 @@ legacy/pdf_low.sh           Preserved original output-directory script
 legacy/pdf_low_replace.sh   Preserved original replacement script
 INSTRUCTIONS.md             Development handoff and implementation plan
 processed_pdfs.log          Ignored active replacement history (created on demand)
+tests/                       Automated conversion, publication, logging, and CLI tests
 ```
 
 The files under `legacy/` remain usable reference tools during development. The
@@ -194,6 +219,8 @@ root-level `processed_pdfs.log` in its null-delimited versioned format.
 `--reprocess` bypasses matching records without erasing history or disabling
 safety checks.
 
-## Roadmap
+## Release status
 
-The next phase adds broader traversal and integration tests.
+Version `1.0.0` implements the agreed interface, safety model, metadata modes,
+quality policies, replacement logging, and automated test coverage. Future
+changes should remain backward-compatible or be released as a new major version.

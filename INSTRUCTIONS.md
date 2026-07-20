@@ -18,23 +18,9 @@ The project root is:
 /Users/stansult/dev/pdf-slim
 ```
 
-Start the next Codex thread from that exact directory and verify normal file
-writes with the patch editor before claiming the workspace is ready. The thread
-that produced this handoff retained a sandbox write grant for the former path
-`/Users/stansult/dev/pdf_low`; terminal reads and elevated Git commands worked in
-the renamed directory, but ordinary patch edits did not. This was discovered
-only when implementation was about to begin.
-
-A temporary compatibility symlink currently exists:
-
-```text
-/Users/stansult/dev/pdf_low -> /Users/stansult/dev/pdf-slim
-```
-
-It was created solely while diagnosing the stale workspace grant. After a new
-thread confirms direct write access to `/Users/stansult/dev/pdf-slim`, remove
-the symlink without affecting the real project directory. Resolve and verify
-both paths before removing anything.
+Direct patch-based access to this directory was verified. The temporary
+compatibility symlink at `/Users/stansult/dev/pdf_low` was resolved, checked, and
+removed without affecting the project.
 
 ## Repository state
 
@@ -54,15 +40,8 @@ The current branch is `master`, tracking `origin/master`. At the last verified
 state, the working tree was clean and synchronized with the remote except for
 the ignored runtime log.
 
-Existing commits:
-
-```text
-3b28637 Rename project to pdf-slim
-c3743d4 Move legacy scripts aside for consolidation
-0550bfb Preserve original PDF scripts before consolidation
-```
-
-Do not rewrite this history. Continue with small, logical commits.
+The implementation was developed through small logical commits. Do not rewrite
+this history.
 
 ## Current files
 
@@ -75,6 +54,7 @@ processed_pdfs.log             Ignored active replacement log (created on demand
 README.md                      Short project/layout description
 INSTRUCTIONS.md                This handoff
 .gitignore                     Runtime/temp exclusions
+tests/                         Automated test suite and Ghostscript double
 ```
 
 The active script implements safe traversal, dry-run planning, reliable
@@ -284,6 +264,6 @@ Expand `README.md` after behavior stabilizes.
 
 ## Immediate next step
 
-The next thread should perform the workspace/access verification checklist,
-clean up the temporary compatibility symlink after resolving it safely, and
-report the verified state. Only then begin the interface/safe-traversal commit.
+Version `1.0.0` is feature-complete for the agreed scope. Run `tests/run.sh` and
+`bash -n pdf-slim.sh` before future releases, preserve the legacy files and
+archived log, and keep subsequent changes small and reviewable.
