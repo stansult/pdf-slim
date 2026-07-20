@@ -12,7 +12,10 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 PDF_SLIM_TESTING=1
+: "$PDF_SLIM_TESTING" # Read by the sourced script; do not export to child CLIs.
 # shellcheck source=../pdf-slim.sh
+# project_dir is resolved to an absolute path at runtime.
+# shellcheck disable=SC1091
 source "$project_dir/pdf-slim.sh"
 
 timeout_command=$(find_command timeout gtimeout)
@@ -23,6 +26,9 @@ quality=preserve
 metadata_mode=standard
 ACTIVE_CANDIDATE=''
 ACTIVE_METADATA_REFERENCE=''
+# process_source reads these variables through Bash dynamic scope.
+: "$timeout_command" "$timeout_duration" "$grayscale" "$quality" \
+    "$metadata_mode" "$ACTIVE_CANDIDATE" "$ACTIVE_METADATA_REFERENCE"
 
 source_pdf=$test_dir/source.pdf
 printf '%1000s\n' '%PDF-1.7 source' >"$source_pdf"
@@ -69,6 +75,7 @@ fi
 if [[ $(uname -s) == Darwin ]] && command -v xattr >/dev/null 2>&1; then
     metadata_mode=all
     mode=output
+    : "$metadata_mode" "$mode"
     output_dir=$test_dir/all-output
     all_pdf=$test_dir/all.pdf
     printf '%1000s\n' '%PDF-1.7 all metadata source' >"$all_pdf"

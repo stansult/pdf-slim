@@ -14,7 +14,10 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 PDF_SLIM_TESTING=1
+: "$PDF_SLIM_TESTING" # Read by the sourced script; do not export to child CLIs.
 # shellcheck source=../pdf-slim.sh
+# project_dir is resolved to an absolute path at runtime.
+# shellcheck disable=SC1091
 source "$project_dir/pdf-slim.sh"
 
 timeout_command=$(find_command timeout gtimeout)
@@ -80,7 +83,7 @@ if convert_pdf "$source_pdf" "$candidate" "$timeout_command" "$fake_gs" 1s 0 pre
 fi
 [[ ! -e $candidate ]]
 
-FAKE_GS_MODE=sleep
+FAKE_GS_MODE='sleep'
 : >"$candidate"
 if convert_pdf "$source_pdf" "$candidate" "$timeout_command" "$fake_gs" 0.1s 0 preserve; then
     printf '%s\n' 'expected timeout to fail' >&2

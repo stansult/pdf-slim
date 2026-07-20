@@ -38,7 +38,10 @@ FAKE_GS_MODE=failure FAKE_GS_ARGS_FILE="$args_file" PATH="$test_path" \
 [[ ! -e $test_dir/dry-output ]]
 [[ ! -e $args_file ]]
 [[ $(grep -c '^would convert:' "$test_dir/nonrecursive.out") -eq 6 ]]
-! grep -q 'deep.pdf' "$test_dir/nonrecursive.out"
+if grep -q 'deep.pdf' "$test_dir/nonrecursive.out"; then
+    printf '%s\n' 'non-recursive traversal unexpectedly selected a nested PDF' >&2
+    exit 1
+fi
 grep -q 'skipping symlink:' "$test_dir/nonrecursive.err"
 grep -q 'skipping non-PDF file:' "$test_dir/nonrecursive.err"
 
