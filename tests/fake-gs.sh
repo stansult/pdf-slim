@@ -3,6 +3,9 @@
 set -o nounset
 
 output_file=''
+if [[ -n ${FAKE_GS_ARGS_FILE:-} ]]; then
+    printf '%s\n' "$@" >"$FAKE_GS_ARGS_FILE"
+fi
 for argument in "$@"; do
     case $argument in
         -sOutputFile=*) output_file=${argument#-sOutputFile=} ;;

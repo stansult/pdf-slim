@@ -19,6 +19,7 @@ timeout_command=$(find_command timeout gtimeout)
 gs_command=$project_dir/tests/fake-gs.sh
 timeout_duration=1s
 grayscale=0
+quality=preserve
 metadata_mode=standard
 ACTIVE_CANDIDATE=''
 ACTIVE_METADATA_REFERENCE=''

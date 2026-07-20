@@ -7,8 +7,8 @@ options.
 
 > **Development status:** file discovery, validation, destination mapping,
 > Ghostscript conversion, atomic output publication, and strictly-smaller
-> replacement and binary-safe replacement logging are implemented. Lossy
-> quality modes are still pending.
+> replacement, binary-safe replacement logging, and explicit quality policies
+> are implemented.
 
 ## Current capabilities
 
@@ -46,7 +46,7 @@ Current options:
                       checks remain enabled (requires --replace)
   --timeout DURATION Per-file conversion timeout (default: 1h)
   --dry-run          Print planned actions; run no Ghostscript and write nothing
-  --quality MODE     Quality policy; currently only "preserve" is accepted
+  --quality MODE     Image policy: preserve (default), balanced, or small
   --grayscale        Request explicit grayscale conversion
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
@@ -159,6 +159,18 @@ replacement outcome then appends three null-terminated fields: canonical path,
 current byte size, and modification time. A failed, timed-out, interrupted, or
 invalid conversion never adds a record.
 
+## Quality policies
+
+- `preserve` keeps source image resolution and uses lossless Flate image
+  encoding. It may produce a file that is not smaller; `--replace` retains the
+  original in that case.
+- `balanced` never upscales, caps images above 300 DPI using bicubic
+  downsampling, and uses high-fidelity JPEG compression (`QFactor 0.15`).
+- `small` never upscales, caps images above 250 DPI using bicubic downsampling,
+  and uses stronger JPEG compression (`QFactor 0.4`).
+
+`--grayscale` is independent and can be combined with any quality policy.
+
 ## Requirements
 
 The command uses Bash, Ghostscript, GNU `timeout` (available as `timeout` or
@@ -184,4 +196,4 @@ safety checks.
 
 ## Roadmap
 
-The next phases add broader tests and explicit lossy quality modes.
+The next phase adds broader traversal and integration tests.

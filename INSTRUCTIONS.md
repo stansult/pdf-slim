@@ -147,7 +147,7 @@ Planned options:
   disabling safety checks.
 - `--timeout DURATION` — per-file conversion timeout, default `1h`.
 - `--dry-run` — show planned files/actions without Ghostscript or writes.
-- `--quality MODE` — initially accept only `preserve`; add lossy modes later.
+- `--quality MODE` — accept `preserve`, `balanced`, or `small`.
 - `--grayscale` — explicit and independent of quality mode.
 - `--help` — document usage, defaults, behavior, and statuses.
 - `--version` — add once useful; a development version is acceptable early.
@@ -232,9 +232,9 @@ Do not finalize lossy presets until interface, conversion, replacement, output,
 cleanup, and logging behavior are tested.
 
 - `preserve` (default): no intentional image downsampling and normally no
-  `-dPDFSETTINGS`.
-- `balanced`: future explicit opt-in with documented modest loss.
-- `small`: future explicit opt-in with stronger reduction.
+  `-dPDFSETTINGS`; use lossless Flate image encoding.
+- `balanced`: cap images above 300 DPI and use JPEG `QFactor 0.15`.
+- `small`: cap images above 250 DPI and use JPEG `QFactor 0.4`.
 - `--grayscale`: orthogonal explicit visible change.
 
 Review current official Ghostscript `pdfwrite` documentation and test candidate

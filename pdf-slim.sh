@@ -23,7 +23,7 @@ Options:
                       checks remain enabled (requires --replace)
   --timeout DURATION Per-file conversion timeout (default: 1h)
   --dry-run          Print planned actions; run no Ghostscript and write nothing
-  --quality MODE     Quality policy; currently only "preserve" is accepted
+  --quality MODE     Image policy: preserve (default), balanced, or small
   --grayscale        Request explicit grayscale conversion
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
@@ -395,7 +395,9 @@ convert_pdf() {
     local gs_command=$4
     local timeout_duration=$5
     local grayscale=$6
+    local quality=$7
     local output status
+    local distiller_params=''
     local -a gs_args
 
     if [[ ! -f $candidate || -L $candidate || -s $candidate ]]; then
@@ -415,7 +417,67 @@ convert_pdf() {
             -dProcessColorModel=/DeviceGray
         )
     fi
-    gs_args+=("-sOutputFile=$candidate" -f "$source")
+    case $quality in
+        preserve)
+            gs_args+=(
+                -dAutoFilterColorImages=false
+                -dColorImageFilter=/FlateEncode
+                -dAutoFilterGrayImages=false
+                -dGrayImageFilter=/FlateEncode
+            )
+            ;;
+        balanced)
+            gs_args+=(
+                -dAutoFilterColorImages=false
+                -dColorImageFilter=/DCTEncode
+                -dAutoFilterGrayImages=false
+                -dGrayImageFilter=/DCTEncode
+                -dPassThroughJPEGImages=true
+                -dPassThroughJPXImages=true
+                -dDownsampleColorImages=true
+                -dColorImageDownsampleType=/Bicubic
+                -dColorImageDownsampleThreshold=1.0
+                -dColorImageResolution=300
+                -dDownsampleGrayImages=true
+                -dGrayImageDownsampleType=/Bicubic
+                -dGrayImageDownsampleThreshold=1.0
+                -dGrayImageResolution=300
+                -dDownsampleMonoImages=true
+                -dMonoImageDownsampleType=/Bicubic
+                -dMonoImageDownsampleThreshold=1.0
+                -dMonoImageResolution=600
+            )
+            distiller_params='<< /ColorImageDict << /QFactor 0.15 /Blend 1 /ColorTransform 1 /HSamples [1 1 1 1] /VSamples [1 1 1 1] >> /GrayImageDict << /QFactor 0.15 /Blend 1 >> >> setdistillerparams'
+            ;;
+        small)
+            gs_args+=(
+                -dAutoFilterColorImages=false
+                -dColorImageFilter=/DCTEncode
+                -dAutoFilterGrayImages=false
+                -dGrayImageFilter=/DCTEncode
+                -dPassThroughJPEGImages=true
+                -dPassThroughJPXImages=true
+                -dDownsampleColorImages=true
+                -dColorImageDownsampleType=/Bicubic
+                -dColorImageDownsampleThreshold=1.0
+                -dColorImageResolution=250
+                -dDownsampleGrayImages=true
+                -dGrayImageDownsampleType=/Bicubic
+                -dGrayImageDownsampleThreshold=1.0
+                -dGrayImageResolution=250
+                -dDownsampleMonoImages=true
+                -dMonoImageDownsampleType=/Bicubic
+                -dMonoImageDownsampleThreshold=1.0
+                -dMonoImageResolution=600
+            )
+            distiller_params='<< /ColorImageDict << /QFactor 0.4 /Blend 1 /ColorTransform 1 /HSamples [1 1 1 1] /VSamples [1 1 1 1] >> /GrayImageDict << /QFactor 0.4 /Blend 1 >> >> setdistillerparams'
+            ;;
+    esac
+    gs_args+=("-sOutputFile=$candidate")
+    if [[ -n $distiller_params ]]; then
+        gs_args+=(-c "$distiller_params")
+    fi
+    gs_args+=(-f "$source")
 
     output=$("$timeout_command" -- "$timeout_duration" \
         "$gs_command" "${gs_args[@]}" 2>&1)
@@ -670,7 +732,7 @@ process_source() {
         return 1
     }
     convert_pdf "$source" "$candidate" "$timeout_command" "$gs_command" \
-        "$timeout_duration" "$grayscale" || {
+        "$timeout_duration" "$grayscale" "$quality" || {
         clear_active_files
         return 1
     }
@@ -866,10 +928,13 @@ main() {
             }
         fi
     fi
-    if [[ $quality != preserve ]]; then
-        error "unsupported quality mode: $quality (currently only preserve is accepted)"
-        return 2
-    fi
+    case $quality in
+        preserve|balanced|small) ;;
+        *)
+            error "unsupported quality mode: $quality"
+            return 2
+            ;;
+    esac
     case $metadata_mode in
         none|basic|standard|all) ;;
         *)
