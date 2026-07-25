@@ -27,7 +27,7 @@ Options:
   --grayscale        Request explicit grayscale conversion
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
-  --help              Show this help and exit
+  -h, --help          Show this help and exit
   --version           Show the version and exit
   --                  End option parsing
 
@@ -37,6 +37,15 @@ default metadata policy preserves permissions plus access and modification
 timestamps. The "all" metadata mode is currently macOS-specific.
 
 Exit status: 0 success, 1 one or more conversions failed, 2 invalid/unsafe request.
+EOF
+}
+
+usage_hint() {
+    cat >&2 <<EOF
+Choose how to handle converted PDFs. For the current directory:
+  $PROGRAM --output-dir slimmed .
+  $PROGRAM --replace .
+Run '$PROGRAM --help' for full usage.
 EOF
 }
 
@@ -830,6 +839,12 @@ main() {
     ACTIVE_METADATA_REFERENCE=''
     ACTIVE_LOG_LOCK=''
 
+    if (( $# == 0 )); then
+        error 'an output mode and at least one input are required'
+        usage_hint
+        return 2
+    fi
+
     while (( $# )); do
         arg=$1
         shift
@@ -890,7 +905,7 @@ main() {
                 metadata_mode=$1
                 shift
                 ;;
-            --help) usage; return 0 ;;
+            -h|--help) usage; return 0 ;;
             --version) printf '%s %s\n' "$PROGRAM" "$VERSION"; return 0 ;;
             --) end_options=1 ;;
             -*) error "unknown option: $arg"; parse_failed=1 ;;
@@ -900,7 +915,8 @@ main() {
 
     (( parse_failed == 0 )) || return 2
     if [[ -z $mode ]]; then
-        error 'exactly one of --output-dir DIR or --replace is required'
+        error 'choose exactly one output mode: --output-dir DIR or --replace'
+        usage_hint
         return 2
     fi
     if [[ $mode == output ]]; then
@@ -956,6 +972,7 @@ main() {
     fi
     if (( ${#inputs[@]} == 0 )); then
         error 'at least one file or directory is required'
+        usage_hint
         return 2
     fi
 

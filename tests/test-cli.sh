@@ -19,6 +19,20 @@ ln -s "$project_dir/tests/fake-gs.sh" "$test_dir/bin/gs"
 cli=$test_dir/cli/pdf-slim.sh
 test_path=$test_dir/bin:$PATH
 
+PATH="$test_path" "$cli" --help >"$test_dir/help-long.out"
+PATH="$test_path" "$cli" -h >"$test_dir/help-short.out"
+cmp "$test_dir/help-long.out" "$test_dir/help-short.out"
+grep -q -- '-h, --help' "$test_dir/help-long.out"
+
+if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
+    printf '%s\n' 'expected an invocation without arguments to fail' >&2
+    exit 1
+fi
+[[ ! -s $test_dir/no-args.out ]]
+grep -q -- '--output-dir slimmed \.' "$test_dir/no-args.err"
+grep -q -- '--replace \.' "$test_dir/no-args.err"
+grep -q -- '--help' "$test_dir/no-args.err"
+
 printf '%100s\n' '%PDF-1.7 one' >"$test_dir/input/one.pdf"
 printf '%100s\n' '%PDF-1.7 uppercase' >"$test_dir/input/UPPER.PDF"
 printf '%100s\n' '%PDF-1.7 spaces' >"$test_dir/input/name with spaces.pdf"

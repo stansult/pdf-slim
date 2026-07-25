@@ -47,12 +47,25 @@ Current options:
   --grayscale        Request explicit grayscale conversion
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
-  --help              Show this help and exit
+  -h, --help          Show this help and exit
   --version           Show the version and exit
   --                  End option parsing
 ```
 
 ## Use cases
+
+Show command help using either conventional spelling:
+
+```bash
+pdf-slim.sh -h
+pdf-slim.sh --help
+```
+
+Process PDFs in the current directory, writing converted copies into `slimmed`:
+
+```bash
+pdf-slim.sh --output-dir slimmed .
+```
 
 Preview a replacement run without starting Ghostscript or changing anything:
 
