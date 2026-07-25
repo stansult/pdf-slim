@@ -262,6 +262,23 @@ Expand `README.md` after behavior stabilizes.
 - Present material CLI, metadata, logging-format, and quality choices to the user
   before finalizing them.
 
+## Collaboration and change approval
+
+A concern, observation, question, or report of confusing behavior is not by
+itself authorization to change the project.
+
+When the user raises a concern without explicitly requesting implementation:
+
+1. Restate the concern and ask the user to confirm that it was understood
+   correctly.
+2. After that confirmation, propose a specific solution without changing files.
+3. Wait for the user to approve the proposed solution.
+4. Only then implement, test, commit, or push the approved change.
+
+Do not combine the understanding confirmation and solution approval into one
+assumed decision. If the user explicitly requests a specific change, that
+request is already authorization for that stated change.
+
 ## Immediate next step
 
 Version `1.0.0` is feature-complete for the agreed scope. Run `tests/run.sh` and
