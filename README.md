@@ -14,7 +14,9 @@ Current stable version: `1.0.0`.
 - Supports optional recursive directory traversal.
 - Handles spaces, tabs, glob characters, and leading hyphens safely.
 - Skips symlinks with a warning and never follows them.
-- Requires an explicit output mode: `--output-dir DIR` or `--replace`.
+- Requires an explicit output mode: `--output FILE`, `--output-dir DIR`, or
+  `--replace`.
+- Supports a one-off exact output filename for a single input PDF.
 - Preserves paths relative to each supplied directory in output mode.
 - Refuses existing output files and collisions between supplied roots.
 - Plans operations without running Ghostscript or writing output when using
@@ -31,6 +33,7 @@ pdf-slim.sh [options] [--] FILE_OR_DIRECTORY ...
 Exactly one output mode is required:
 
 ```text
+-o, --output FILE Write one input PDF to exactly FILE
 --output-dir DIR   Write output beneath DIR, preserving relative paths
 --replace          Replace originals only when converted files are smaller
 ```
@@ -66,6 +69,16 @@ Process PDFs in the current directory, writing converted copies into `slimmed`:
 ```bash
 pdf-slim.sh --output-dir slimmed .
 ```
+
+Convert one PDF to an exact output filename:
+
+```bash
+pdf-slim.sh -o "Teen driver letter (slim).pdf" "Teen driver letter.pdf"
+```
+
+The exact output mode accepts one regular PDF file. Its parent directory must
+already exist. It refuses directory inputs, multiple inputs, recursive
+traversal, symlink destinations, and existing destinations.
 
 Preview a replacement run without starting Ghostscript or changing anything:
 
@@ -155,8 +168,9 @@ Exit statuses are `0` for success, `1` when one or more conversions fail, and
 ## Safety model
 
 `--replace` replaces an original only after a successful, validated conversion
-is strictly smaller. It never removes the original first. Output mode never
-silently overwrites a destination or publishes a partial conversion.
+is strictly smaller. It never removes the original first. Exact-file and
+output-directory modes never silently overwrite a destination or publish a
+partial conversion.
 
 Metadata preservation is strict: if the selected metadata cannot be preserved,
 the candidate is discarded and the original remains untouched. `standard`

@@ -48,6 +48,14 @@ process_source "$source_pdf" source.pdf "$output_dir/source.pdf"
 [[ $(stat -f '%a' "$output_dir/source.pdf") == "$source_atime" ]]
 [[ $(stat -f '%m' "$output_dir/source.pdf") == "$source_mtime" ]]
 
+mode='file'
+exact_pdf=$test_dir/exact.pdf
+process_source "$source_pdf" source.pdf "$exact_pdf"
+[[ -s $exact_pdf ]]
+[[ $(file_mode "$exact_pdf") == 640 ]]
+[[ $(stat -f '%a' "$exact_pdf") == "$source_atime" ]]
+[[ $(stat -f '%m' "$exact_pdf") == "$source_mtime" ]]
+
 mode=replace
 replace_pdf=$test_dir/replace.pdf
 printf '%1000s\n' '%PDF-1.7 replace source' >"$replace_pdf"
@@ -110,6 +118,22 @@ set -o errexit
 [[ $interrupt_status -eq 143 ]]
 [[ $(shasum -a 256 "$interrupt_pdf") == "$interrupt_hash" ]]
 [[ ! -e $test_dir/interrupt-output/interrupt.pdf ]]
+
+race_pdf=$test_dir/race.pdf
+race_destination=$test_dir/race-output.pdf
+printf '%1000s\n' '%PDF-1.7 race source' >"$race_pdf"
+FAKE_GS_MODE=sleep PATH="$test_dir/bin:$PATH" \
+    "$project_dir/pdf-slim.sh" -o "$race_destination" \
+    "$race_pdf" >/dev/null 2>&1 &
+process_id=$!
+sleep 0.2
+printf '%s\n' 'existing destination' >"$race_destination"
+set +o errexit
+wait "$process_id"
+race_status=$?
+set -o errexit
+[[ $race_status -eq 1 ]]
+[[ $(sed -n '1p' "$race_destination") == 'existing destination' ]]
 
 if find "$test_dir" -name '.pdf-slim.*' -print | grep .; then
     printf '%s\n' 'temporary candidate was not cleaned up' >&2

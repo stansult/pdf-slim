@@ -14,6 +14,7 @@ usage() {
 Usage: $PROGRAM [options] [--] FILE_OR_DIRECTORY ...
 
 Exactly one output mode is required:
+  -o, --output FILE Write one input PDF to exactly FILE
   --output-dir DIR   Preserve input-relative paths beneath DIR
   --replace          Replace originals only when safe conversion is smaller
 
@@ -45,6 +46,8 @@ usage_hint() {
 Choose how to handle converted PDFs. For the current directory:
   $PROGRAM --output-dir slimmed .
   $PROGRAM --replace .
+For a single PDF:
+  $PROGRAM -o compressed.pdf original.pdf
 Run '$PROGRAM --help' for full usage.
 EOF
 }
@@ -673,6 +676,11 @@ plan_actions() {
             if (( dry_run )); then
                 printf 'would convert: %s -> %s\n' "$source" "$destination"
             fi
+        elif [[ $mode == file ]]; then
+            destinations[${#destinations[@]}]=$output_file
+            if (( dry_run )); then
+                printf 'would convert: %s -> %s\n' "$source" "$output_file"
+            fi
         else
             destinations[${#destinations[@]}]=$source
             if (( dry_run )); then
@@ -705,6 +713,13 @@ process_source() {
         ensure_output_parent "$relative" || return 1
         candidate_dir=${destination%/*}
         [[ $candidate_dir != "$destination" ]] || candidate_dir=.
+    elif [[ $mode == file ]]; then
+        candidate_dir=${destination%/*}
+        [[ $candidate_dir != "$destination" ]] || candidate_dir=.
+        candidate_dir=$(realpath -- "$candidate_dir") || {
+            error "could not resolve output parent directory: $candidate_dir"
+            return 1
+        }
     else
         candidate_dir=${source%/*}
         [[ $candidate_dir != "$source" ]] || candidate_dir=.
@@ -776,7 +791,7 @@ process_source() {
         fi
     fi
 
-    if [[ $mode == output && ( -e $destination || -L $destination ) ]]; then
+    if [[ $mode != replace && ( -e $destination || -L $destination ) ]]; then
         error "output destination appeared during conversion: $destination"
         clear_active_files
         return 1
@@ -789,11 +804,29 @@ process_source() {
             return 1
         fi
     fi
-    mv "$candidate" "$destination" || {
-        error "could not publish converted PDF: $destination"
-        clear_active_files
-        return 1
-    }
+    if [[ $mode == replace ]]; then
+        mv -- "$candidate" "$destination" || {
+            error "could not publish converted PDF: $destination"
+            clear_active_files
+            return 1
+        }
+    else
+        mv -n -- "$candidate" "$destination" || {
+            error "could not publish converted PDF: $destination"
+            clear_active_files
+            return 1
+        }
+        if [[ -e $candidate || -L $candidate ]]; then
+            error "output destination appeared during publication: $destination"
+            clear_active_files
+            return 1
+        fi
+        if [[ ! -f $destination || -L $destination || ! -s $destination ]]; then
+            error "published output is not a valid nonempty regular file: $destination"
+            clear_active_files
+            return 1
+        fi
+    fi
     ACTIVE_CANDIDATE=''
     remove_candidate "$timestamp_reference"
     ACTIVE_METADATA_REFERENCE=''
@@ -812,6 +845,7 @@ cleanup_active_candidate() {
 
 main() {
     local output_dir=''
+    local output_file=''
     local mode=''
     local timeout_duration='1h'
     local quality='preserve'
@@ -821,7 +855,7 @@ main() {
     local reprocess=0
     local recursive=0
     local end_options=0
-    local arg directory relative
+    local arg directory relative output_parent
     local parse_failed=0
     local discovery_failed=0
     local -a inputs=()
@@ -853,6 +887,21 @@ main() {
             continue
         fi
         case $arg in
+            -o|--output)
+                if (( $# == 0 )); then
+                    error "$arg requires a file argument"
+                    parse_failed=1
+                    break
+                fi
+                output_file=$1
+                shift
+                if [[ -n $mode ]]; then
+                    error 'output modes are mutually exclusive'
+                    parse_failed=1
+                else
+                    mode='file'
+                fi
+                ;;
             --output-dir)
                 if (( $# == 0 )); then
                     error '--output-dir requires a directory argument'
@@ -861,18 +910,20 @@ main() {
                 fi
                 output_dir=$1
                 shift
-                if [[ $mode == replace ]]; then
-                    error '--output-dir and --replace are mutually exclusive'
+                if [[ -n $mode ]]; then
+                    error 'output modes are mutually exclusive'
                     parse_failed=1
+                else
+                    mode=output
                 fi
-                mode=output
                 ;;
             --replace)
-                if [[ $mode == output ]]; then
-                    error '--output-dir and --replace are mutually exclusive'
+                if [[ -n $mode ]]; then
+                    error 'output modes are mutually exclusive'
                     parse_failed=1
+                else
+                    mode=replace
                 fi
-                mode=replace
                 ;;
             --recursive) recursive=1 ;;
             --reprocess) reprocess=1 ;;
@@ -915,7 +966,7 @@ main() {
 
     (( parse_failed == 0 )) || return 2
     if [[ -z $mode ]]; then
-        error 'choose exactly one output mode: --output-dir DIR or --replace'
+        error 'choose exactly one output mode: --output FILE, --output-dir DIR, or --replace'
         usage_hint
         return 2
     fi
@@ -942,6 +993,29 @@ main() {
                 error "cannot resolve output directory: $output_dir"
                 return 2
             }
+        fi
+    elif [[ $mode == file ]]; then
+        if [[ -z $output_file ]]; then
+            error '--output must not be empty'
+            return 2
+        fi
+        if [[ -z ${output_file##*/} ]]; then
+            error "--output requires a filename, not a directory path: $output_file"
+            return 2
+        fi
+        if [[ -e $output_file || -L $output_file ]]; then
+            error "output destination already exists: $output_file"
+            return 2
+        fi
+        output_parent=${output_file%/*}
+        [[ $output_parent != "$output_file" ]] || output_parent=.
+        if [[ -L $output_parent ]]; then
+            error "output parent directory must not be a symlink: $output_parent"
+            return 2
+        fi
+        if [[ ! -d $output_parent ]]; then
+            error "output parent directory does not exist: $output_parent"
+            return 2
         fi
     fi
     case $quality in
@@ -974,6 +1048,28 @@ main() {
         error 'at least one file or directory is required'
         usage_hint
         return 2
+    fi
+    if [[ $mode == file ]]; then
+        if (( recursive )); then
+            error '--recursive cannot be used with --output'
+            return 2
+        fi
+        if (( ${#inputs[@]} != 1 )); then
+            error '--output requires exactly one input PDF'
+            return 2
+        fi
+        if [[ -L ${inputs[0]} ]]; then
+            error "--output input must not be a symlink: ${inputs[0]}"
+            return 2
+        fi
+        if [[ ! -f ${inputs[0]} ]]; then
+            error "--output input must be a regular PDF file: ${inputs[0]}"
+            return 2
+        fi
+        if ! is_pdf_name "${inputs[0]}"; then
+            error "--output input is not a PDF file: ${inputs[0]}"
+            return 2
+        fi
     fi
 
     for arg in "${inputs[@]}"; do

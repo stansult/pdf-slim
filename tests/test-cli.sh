@@ -45,6 +45,76 @@ printf '%s\n' 'not a PDF' >"$test_dir/input/not.txt"
 ln -s "$test_dir/input/one.pdf" "$test_dir/input/link.pdf"
 printf '%100s\n' '%PDF-1.7 collision' >"$test_dir/other/one.pdf"
 
+exact_output=$test_dir/exact-output.pdf
+FAKE_GS_MODE=success PATH="$test_path" \
+    "$cli" -o "$exact_output" "$test_dir/input/one.pdf" >/dev/null
+[[ -s $exact_output ]]
+[[ ! -e $test_dir/cli/processed_pdfs.log ]]
+
+exact_dry_output=$test_dir/exact-dry-output.pdf
+exact_dry_args=$test_dir/exact-dry-args
+FAKE_GS_MODE=failure FAKE_GS_ARGS_FILE="$exact_dry_args" PATH="$test_path" \
+    "$cli" --dry-run --output "$exact_dry_output" \
+    "$test_dir/input/one.pdf" >"$test_dir/exact-dry.out"
+[[ ! -e $exact_dry_output ]]
+[[ ! -e $exact_dry_args ]]
+grep -q "would convert: .* -> $exact_dry_output" "$test_dir/exact-dry.out"
+
+exact_failure_output=$test_dir/exact-failure-output.pdf
+exact_source_hash=$(shasum -a 256 "$test_dir/input/one.pdf")
+if FAKE_GS_MODE=partial-failure PATH="$test_path" \
+    "$cli" -o "$exact_failure_output" "$test_dir/input/one.pdf" \
+    >/dev/null 2>&1; then
+    printf '%s\n' 'expected an exact-output conversion failure' >&2
+    exit 1
+fi
+[[ ! -e $exact_failure_output ]]
+[[ $(shasum -a 256 "$test_dir/input/one.pdf") == "$exact_source_hash" ]]
+
+if PATH="$test_path" "$cli" -o "$exact_output" \
+    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected an existing exact output to be refused' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" -o "$test_dir/multiple.pdf" \
+    "$test_dir/input/one.pdf" "$test_dir/input/UPPER.PDF" >/dev/null 2>&1; then
+    printf '%s\n' 'expected exact output with multiple inputs to be refused' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" -o "$test_dir/directory.pdf" \
+    "$test_dir/input" >/dev/null 2>&1; then
+    printf '%s\n' 'expected exact output with a directory input to be refused' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" --recursive -o "$test_dir/recursive.pdf" \
+    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected recursive exact output to be refused' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" -o "$test_dir/missing/output.pdf" \
+    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected a missing exact-output parent to be refused' >&2
+    exit 1
+fi
+ln -s "$test_dir/symlink-target.pdf" "$test_dir/symlink-output.pdf"
+if PATH="$test_path" "$cli" -o "$test_dir/symlink-output.pdf" \
+    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected a symlink exact output to be refused' >&2
+    exit 1
+fi
+[[ ! -e $test_dir/symlink-target.pdf ]]
+if PATH="$test_path" "$cli" -o "$test_dir/conflict-file.pdf" --replace \
+    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected exact output and replacement to conflict' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" --output-dir "$test_dir/conflict-dir" \
+    -o "$test_dir/conflict-file.pdf" "$test_dir/input/one.pdf" \
+    >/dev/null 2>&1; then
+    printf '%s\n' 'expected exact and directory output modes to conflict' >&2
+    exit 1
+fi
+
 args_file=$test_dir/gs-args
 FAKE_GS_MODE=failure FAKE_GS_ARGS_FILE="$args_file" PATH="$test_path" \
     "$cli" --dry-run --output-dir "$test_dir/dry-output" \
@@ -121,6 +191,9 @@ printf '%100s\n' '%PDF-1.7 leading' >"$leading_dir/-leading.pdf"
 (
     cd "$leading_dir"
     PATH="$test_path" "$cli" --dry-run --replace -- -leading.pdf >/dev/null
+    FAKE_GS_MODE=success PATH="$test_path" \
+        "$cli" -o -output.pdf -- -leading.pdf >/dev/null
+    [[ -s ./-output.pdf ]]
 )
 
 PATH="$test_path" "$cli" --dry-run --replace "$test_dir/input/link.pdf" \

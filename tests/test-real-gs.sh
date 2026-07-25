@@ -52,6 +52,11 @@ for quality in preserve balanced small; do
     done
 done
 
+exact_pdf=$test_dir/exact.pdf
+"$cli" --quality balanced -o "$exact_pdf" "$source_pdf" >/dev/null
+[[ -s $exact_pdf ]]
+gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$exact_pdf"
+
 replace_pdf=$test_dir/replace.pdf
 cp "$source_pdf" "$replace_pdf"
 dd if=/dev/zero bs=1024 count=100 >>"$replace_pdf" 2>/dev/null

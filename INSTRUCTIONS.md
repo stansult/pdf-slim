@@ -106,9 +106,10 @@ pdf-slim.sh [options] [FILE_OR_DIRECTORY ...]
 
 The user has approved these decisions:
 
-1. Require exactly one of `--output-dir DIR` or `--replace`. There is no implicit
-   destructive action and no implicit default output directory.
-2. `--replace` and `--output-dir` are mutually exclusive.
+1. Require exactly one of `--output FILE`, `--output-dir DIR`, or `--replace`.
+   There is no implicit destructive action and no implicit default output
+   directory.
+2. All three output modes are mutually exclusive.
 3. Match PDF extensions case-insensitively, including `.PDF`.
 4. Skip symlinks with a clear warning; do not follow them.
 5. Preserve relative directory structure beneath `--output-dir`.
@@ -116,9 +117,13 @@ The user has approved these decisions:
 7. Keep processed-file logging limited to `--replace` initially.
 8. Preserve is the default quality policy; grayscale and reduced quality are
    always explicit.
+9. `-o FILE` / `--output FILE` is for one-off conversion of exactly one regular
+   PDF to an exact filename. It does not accept directories, multiple inputs, or
+   `--recursive`; its parent directory must already exist.
 
 Planned options:
 
+- `-o FILE`, `--output FILE` — publish one input PDF at an exact filename.
 - `--output-dir DIR` — publish converted PDFs under a separate directory.
 - `--replace` — replace an original only after a valid conversion is strictly
   smaller.
@@ -191,9 +196,11 @@ the original unchanged.
 Investigate and discuss metadata preservation before promising permissions,
 ownership, timestamps, extended attributes, or macOS metadata behavior.
 
-For output mode, preserve relative structure, validate before publishing, and
-refuse existing destinations and mapping collisions. Never publish a partial
-candidate under its final name.
+For output-directory mode, preserve relative structure, validate before
+publishing, and refuse existing destinations and mapping collisions. Exact-file
+output must accept only one regular PDF and use the user-supplied destination.
+Both output modes must recheck the destination immediately before atomic
+publication. Never publish a partial candidate under its final name.
 
 ### 5. Correct replacement logging
 
@@ -236,6 +243,9 @@ doubles where useful. At minimum cover:
 - interruption and precise temporary cleanup;
 - byte-identical original after every failure or non-smaller result;
 - refusal to overwrite output or follow symlinks;
+- exact-file output with both aliases, plus conflicts with directory output,
+  replacement, multiple/directory inputs, recursion, and race-time destination
+  creation;
 - no log update after failure/timeout;
 - dry-run performs no writes and launches no Ghostscript process.
 
