@@ -23,6 +23,10 @@ PATH="$test_path" "$cli" --help >"$test_dir/help-long.out"
 PATH="$test_path" "$cli" -h >"$test_dir/help-short.out"
 cmp "$test_dir/help-long.out" "$test_dir/help-short.out"
 grep -q -- '-h, --help' "$test_dir/help-long.out"
+grep -q -- 'Quality -- choose one approach:' "$test_dir/help-long.out"
+grep -q -- '--max-dpi DPI' "$test_dir/help-long.out"
+grep -q -- '--jpeg-recompress Q' "$test_dir/help-long.out"
+grep -q -- 'Do not combine --quality' "$test_dir/help-long.out"
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -59,6 +63,16 @@ FAKE_GS_MODE=failure FAKE_GS_ARGS_FILE="$exact_dry_args" PATH="$test_path" \
 [[ ! -e $exact_dry_output ]]
 [[ ! -e $exact_dry_args ]]
 grep -q "would convert: .* -> $exact_dry_output" "$test_dir/exact-dry.out"
+
+custom_output=$test_dir/custom-output.pdf
+custom_args=$test_dir/custom-args
+FAKE_GS_MODE=success FAKE_GS_ARGS_FILE="$custom_args" PATH="$test_path" \
+    "$cli" -i "$test_dir/input/one.pdf" -o "$custom_output" \
+    --max-dpi 275 --jpeg-recompress 0.20 >/dev/null
+[[ -s $custom_output ]]
+grep -Fx -- '-dColorImageResolution=275' "$custom_args" >/dev/null
+grep -Fx -- '-dPassThroughJPEGImages=false' "$custom_args" >/dev/null
+grep -F -- '/QFactor 0.20' "$custom_args" >/dev/null
 
 exact_failure_output=$test_dir/exact-failure-output.pdf
 exact_source_hash=$(shasum -a 256 "$test_dir/input/one.pdf")
@@ -179,6 +193,33 @@ fi
 if PATH="$test_path" "$cli" --quality unknown --replace \
     -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected unknown quality to fail' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" --quality balanced --max-dpi 275 --replace \
+    -i "$test_dir/input/one.pdf" \
+    >"$test_dir/quality-conflict.out" 2>"$test_dir/quality-conflict.err"; then
+    printf '%s\n' 'expected preset and detailed quality options to conflict' >&2
+    exit 1
+fi
+grep -q 'choose one quality approach' "$test_dir/quality-conflict.err"
+if PATH="$test_path" "$cli" --max-dpi 0 --replace \
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected zero maximum DPI to be refused' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" --max-dpi 275.5 --replace \
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected a non-integer maximum DPI to be refused' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" --jpeg-recompress 1.1 --replace \
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected an out-of-range QFactor to be refused' >&2
+    exit 1
+fi
+if PATH="$test_path" "$cli" --jpeg-recompress -0.1 --replace \
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected a negative QFactor to be refused' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" --preserve-metadata unknown --replace \

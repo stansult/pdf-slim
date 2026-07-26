@@ -57,6 +57,12 @@ exact_pdf=$test_dir/exact.pdf
 [[ -s $exact_pdf ]]
 gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$exact_pdf"
 
+custom_pdf=$test_dir/custom.pdf
+"$cli" --max-dpi 275 --jpeg-recompress 0.20 --grayscale \
+    -o "$custom_pdf" -i "$source_pdf" >/dev/null
+[[ -s $custom_pdf ]]
+gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$custom_pdf"
+
 replace_pdf=$test_dir/replace.pdf
 cp "$source_pdf" "$replace_pdf"
 dd if=/dev/zero bs=1024 count=100 >>"$replace_pdf" 2>/dev/null

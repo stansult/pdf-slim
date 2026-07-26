@@ -123,6 +123,10 @@ The user has approved these decisions:
 10. Require `-i PATH` / `--input PATH` for every input. Repeat it for multiple
     files or directories. Positional inputs and the `--` terminator are not
     supported.
+11. Quality can be selected either through the named `--quality` presets or
+    through detailed `--max-dpi` / `--jpeg-recompress` controls. Reject commands
+    that mix those approaches with a clear explanation. With no quality option,
+    default to `preserve`; keep `--grayscale` independent.
 
 Planned options:
 
@@ -138,6 +142,9 @@ Planned options:
 - `--timeout DURATION` — per-file conversion timeout, default `1h`.
 - `--dry-run` — show planned files/actions without Ghostscript or writes.
 - `--quality MODE` — accept `preserve`, `balanced`, or `small`.
+- `--max-dpi DPI` — detailed positive-integer color/grayscale DPI cap.
+- `--jpeg-recompress Q` — detailed JPEG encoding with Ghostscript QFactor
+  `0.0` through `1.0`.
 - `--grayscale` — explicit and independent of quality mode.
 - `--help` — document usage, defaults, behavior, and statuses.
 - `--version` — add once useful; a development version is acceptable early.
@@ -227,6 +234,11 @@ cleanup, and logging behavior are tested.
   `-dPDFSETTINGS`; use lossless Flate image encoding.
 - `balanced`: cap images above 300 DPI and use JPEG `QFactor 0.15`.
 - `small`: cap images above 250 DPI and use JPEG `QFactor 0.4`.
+- Detailed mode: allow either or both of `--max-dpi DPI` and
+  `--jpeg-recompress Q`. With no explicit DPI cap, retain color/grayscale
+  resolution. With no explicit recompression value, pass through eligible
+  existing JPEGs and use `QFactor 0.15` for images that require JPEG encoding.
+  Retain the 600-DPI monochrome cap.
 - `--grayscale`: orthogonal explicit visible change.
 
 Review current official Ghostscript `pdfwrite` documentation and test candidate
@@ -251,6 +263,8 @@ doubles where useful. At minimum cover:
 - exact-file output with both aliases, plus conflicts with directory output,
   replacement, multiple/directory inputs, recursion, and race-time destination
   creation;
+- preset/detail quality conflicts, detailed value validation, independent
+  QFactor and DPI propagation, and detailed grayscale conversion;
 - no log update after failure/timeout;
 - dry-run performs no writes and launches no Ghostscript process.
 

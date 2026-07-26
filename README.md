@@ -33,27 +33,44 @@ pdf-slim.sh [options]
 Input paths are explicit and repeatable:
 
 ```text
--i, --input PATH  Input PDF or directory; repeat for multiple inputs
+-i, --input PATH    Input PDF or directory; repeat for multiple inputs
 ```
 
 Exactly one output mode is required:
 
 ```text
--o, --output FILE  Write one input PDF to exactly FILE
---output-dir DIR   Preserve input-relative paths beneath DIR
---replace          Replace originals only when safe conversion is smaller
+-o, --output FILE   Write one input PDF to exactly FILE
+--output-dir DIR    Preserve input-relative paths beneath DIR
+--replace           Replace originals only when safe conversion is smaller
+```
+
+Quality selection has two mutually exclusive approaches:
+
+```text
+Quality -- choose one approach:
+  Preset:
+    --quality MODE       Use preserve, balanced, or small
+                         (default when no quality options are given: preserve)
+  Detailed:
+    --max-dpi DPI        Downsample color/grayscale images above DPI
+                         (default: no color/grayscale DPI cap)
+    --jpeg-recompress Q  JPEG-encode color/grayscale images at QFactor Q,
+                         0.0-1.0; lower values preserve more quality
+                         (default: existing eligible JPEGs pass through)
+  --grayscale            Convert colors to grayscale; independent of either
+                         quality approach
+
+Do not combine --quality with --max-dpi or --jpeg-recompress.
 ```
 
 Current options:
 
 ```text
-  --recursive        Descend into supplied directories
-  --reprocess        Reprocess files that match the replacement log; all safety
+  --recursive         Descend into supplied directories
+  --reprocess         Reprocess files that match the replacement log; all safety
                       checks remain enabled (requires --replace)
-  --timeout DURATION Per-file conversion timeout (default: 1h)
-  --dry-run          Print planned actions; run no Ghostscript and write nothing
-  --quality MODE     Image policy: preserve (default), balanced, or small
-  --grayscale        Request explicit grayscale conversion
+  --timeout DURATION  Per-file conversion timeout (default: 1h)
+  --dry-run           Print planned actions; run no Ghostscript and write nothing
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
@@ -198,11 +215,73 @@ invalid conversion never adds a record.
   encoding. It may produce a file that is not smaller; `--replace` retains the
   original in that case.
 - `balanced` never upscales, caps images above 300 DPI using bicubic
-  downsampling, and uses high-fidelity JPEG compression (`QFactor 0.15`).
+  downsampling, and uses `QFactor 0.15` when JPEG encoding is required. Eligible
+  existing JPEGs pass through unchanged.
 - `small` never upscales, caps images above 250 DPI using bicubic downsampling,
-  and uses stronger JPEG compression (`QFactor 0.4`).
+  and uses `QFactor 0.4` when JPEG encoding is required. Eligible existing JPEGs
+  pass through unchanged.
 
-`--grayscale` is independent and can be combined with any quality policy.
+Detailed controls define a custom quality policy:
+
+- `--max-dpi DPI` caps color and grayscale images at a positive integer DPI.
+  Omitting it leaves their resolution uncapped. Monochrome line art retains the
+  existing 600-DPI cap.
+- `--jpeg-recompress Q` forces color and grayscale images through JPEG encoding,
+  including existing JPEGs below the DPI cap. `Q` is Ghostscript's QFactor from
+  `0.0` to `1.0`; lower values preserve more quality and usually produce larger
+  files.
+- Without `--jpeg-recompress`, eligible existing JPEGs pass through. Any image
+  that must be JPEG-encoded uses the detailed-mode default `QFactor 0.15`.
+
+The quality approaches behave as follows:
+
+| Arguments | Effective behavior |
+| --- | --- |
+| No quality arguments | Implicit `preserve` preset |
+| `--quality MODE` | Named preset |
+| `--max-dpi DPI` | Detailed mode with a DPI cap |
+| `--jpeg-recompress Q` | Detailed recompression without a color/grayscale DPI cap |
+| Both detailed options | Detailed control of recompression and DPI |
+| Preset plus either detailed option | Invalid; choose one approach |
+
+Combining preset and detailed controls fails with an explanation:
+
+```text
+pdf-slim.sh: error: choose one quality approach: use --quality MODE or detailed options (--max-dpi and --jpeg-recompress), not both
+```
+
+`--grayscale` is independent and can be combined with either approach.
+JPEG recompression and downsampling are lossy and do not guarantee a smaller
+result.
+
+Recompress without changing color/grayscale resolution:
+
+```bash
+pdf-slim.sh --input original.pdf --output q015.pdf \
+  --jpeg-recompress 0.15
+```
+
+Downsample only images above 275 DPI:
+
+```bash
+pdf-slim.sh --input original.pdf --output 275dpi.pdf --max-dpi 275
+```
+
+Control both dimensions:
+
+```bash
+pdf-slim.sh --input original.pdf --output q020-275dpi.pdf \
+  --jpeg-recompress 0.20 --max-dpi 275
+```
+
+Generate several closely spaced recompression candidates for comparison:
+
+```bash
+for q in 0.10 0.15 0.20 0.25 0.30; do
+  pdf-slim.sh --input original.pdf --output "qfactor-$q.pdf" \
+    --jpeg-recompress "$q"
+done
+```
 
 ## Requirements
 

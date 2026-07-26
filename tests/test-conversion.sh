@@ -57,6 +57,27 @@ grep -Fx -- '-sColorConversionStrategy=Gray' "$args_file" >/dev/null
 grep -F -- '/QFactor 0.4' "$args_file" >/dev/null
 remove_candidate "$candidate"
 
+: >"$candidate"
+convert_pdf "$source_pdf" "$candidate" "$timeout_command" "$fake_gs" \
+    1s 0 detailed '' 0.20
+grep -Fx -- '-dPassThroughJPEGImages=false' "$args_file" >/dev/null
+grep -Fx -- '-dDownsampleColorImages=false' "$args_file" >/dev/null
+grep -F -- '/QFactor 0.20' "$args_file" >/dev/null
+if grep -F -- '-dColorImageResolution=' "$args_file" >/dev/null; then
+    printf '%s\n' 'JPEG-only detailed mode must not impose a DPI cap' >&2
+    exit 1
+fi
+remove_candidate "$candidate"
+
+: >"$candidate"
+convert_pdf "$source_pdf" "$candidate" "$timeout_command" "$fake_gs" \
+    1s 0 detailed 275 ''
+grep -Fx -- '-dPassThroughJPEGImages=true' "$args_file" >/dev/null
+grep -Fx -- '-dColorImageResolution=275' "$args_file" >/dev/null
+grep -Fx -- '-dGrayImageResolution=275' "$args_file" >/dev/null
+grep -F -- '/QFactor 0.15' "$args_file" >/dev/null
+remove_candidate "$candidate"
+
 unset FAKE_GS_ARGS_FILE
 
 FAKE_GS_MODE=failure

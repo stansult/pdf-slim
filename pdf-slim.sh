@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 
-# Safe interface, traversal, and Ghostscript conversion layer. Publication is
-# implemented in a later phase; until then, only --dry-run can complete.
+# Safe PDF size reduction with explicit input/output modes, configurable image
+# quality, reliable Ghostscript conversion, atomic publication, metadata
+# preservation, and replacement logging.
 
 set -o nounset
 
@@ -21,14 +22,27 @@ Exactly one output mode is required:
   --output-dir DIR    Preserve input-relative paths beneath DIR
   --replace           Replace originals only when safe conversion is smaller
 
+Quality -- choose one approach:
+  Preset:
+    --quality MODE       Use preserve, balanced, or small
+                         (default when no quality options are given: preserve)
+  Detailed:
+    --max-dpi DPI        Downsample color/grayscale images above DPI
+                         (default: no color/grayscale DPI cap)
+    --jpeg-recompress Q  JPEG-encode color/grayscale images at QFactor Q,
+                         0.0-1.0; lower values preserve more quality
+                         (default: existing eligible JPEGs pass through)
+  --grayscale            Convert colors to grayscale; independent of either
+                         quality approach
+
+Do not combine --quality with --max-dpi or --jpeg-recompress.
+
 Options:
   --recursive         Descend into supplied directories
   --reprocess         Reprocess files that match the replacement log; all safety
                       checks remain enabled (requires --replace)
   --timeout DURATION  Per-file conversion timeout (default: 1h)
   --dry-run           Print planned actions; run no Ghostscript and write nothing
-  --quality MODE      Image policy: preserve (default), balanced, or small
-  --grayscale         Request explicit grayscale conversion
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
@@ -410,8 +424,12 @@ convert_pdf() {
     local timeout_duration=$5
     local grayscale=$6
     local quality=$7
+    local max_dpi=${8:-}
+    local jpeg_recompress=${9:-}
     local output status
     local distiller_params=''
+    local qfactor
+    local pass_through_jpeg=true
     local -a gs_args
 
     if [[ ! -f $candidate || -L $candidate || -s $candidate ]]; then
@@ -485,6 +503,42 @@ convert_pdf() {
                 -dMonoImageResolution=600
             )
             distiller_params='<< /ColorImageDict << /QFactor 0.4 /Blend 1 /ColorTransform 1 /HSamples [1 1 1 1] /VSamples [1 1 1 1] >> /GrayImageDict << /QFactor 0.4 /Blend 1 >> >> setdistillerparams'
+            ;;
+        detailed)
+            qfactor=${jpeg_recompress:-0.15}
+            [[ -z $jpeg_recompress ]] || pass_through_jpeg=false
+            gs_args+=(
+                -dAutoFilterColorImages=false
+                -dColorImageFilter=/DCTEncode
+                -dAutoFilterGrayImages=false
+                -dGrayImageFilter=/DCTEncode
+                "-dPassThroughJPEGImages=$pass_through_jpeg"
+                -dPassThroughJPXImages=true
+            )
+            if [[ -n $max_dpi ]]; then
+                gs_args+=(
+                    -dDownsampleColorImages=true
+                    -dColorImageDownsampleType=/Bicubic
+                    -dColorImageDownsampleThreshold=1.0
+                    "-dColorImageResolution=$max_dpi"
+                    -dDownsampleGrayImages=true
+                    -dGrayImageDownsampleType=/Bicubic
+                    -dGrayImageDownsampleThreshold=1.0
+                    "-dGrayImageResolution=$max_dpi"
+                )
+            else
+                gs_args+=(
+                    -dDownsampleColorImages=false
+                    -dDownsampleGrayImages=false
+                )
+            fi
+            gs_args+=(
+                -dDownsampleMonoImages=true
+                -dMonoImageDownsampleType=/Bicubic
+                -dMonoImageDownsampleThreshold=1.0
+                -dMonoImageResolution=600
+            )
+            distiller_params="<< /ColorImageDict << /QFactor $qfactor /Blend 1 /ColorTransform 1 /HSamples [1 1 1 1] /VSamples [1 1 1 1] >> /GrayImageDict << /QFactor $qfactor /Blend 1 >> >> setdistillerparams"
             ;;
     esac
     gs_args+=("-sOutputFile=$candidate")
@@ -758,7 +812,8 @@ process_source() {
         return 1
     }
     convert_pdf "$source" "$candidate" "$timeout_command" "$gs_command" \
-        "$timeout_duration" "$grayscale" "$quality" || {
+        "$timeout_duration" "$grayscale" "$quality" "$max_dpi" \
+        "$jpeg_recompress" || {
         clear_active_files
         return 1
     }
@@ -851,6 +906,8 @@ main() {
     local mode=''
     local timeout_duration='1h'
     local quality='preserve'
+    local max_dpi=''
+    local jpeg_recompress=''
     local metadata_mode='standard'
     local dry_run=0
     local grayscale=0
@@ -859,6 +916,8 @@ main() {
     local arg directory relative output_parent
     local parse_failed=0
     local discovery_failed=0
+    local quality_explicit=0
+    local detailed_quality=0
     local -a inputs=()
     local -a sources=()
     local -a source_keys=()
@@ -951,6 +1010,27 @@ main() {
                 fi
                 quality=$1
                 shift
+                quality_explicit=1
+                ;;
+            --max-dpi)
+                if (( $# == 0 )); then
+                    error '--max-dpi requires a DPI argument'
+                    parse_failed=1
+                    break
+                fi
+                max_dpi=$1
+                shift
+                detailed_quality=1
+                ;;
+            --jpeg-recompress)
+                if (( $# == 0 )); then
+                    error '--jpeg-recompress requires a QFactor argument'
+                    parse_failed=1
+                    break
+                fi
+                jpeg_recompress=$1
+                shift
+                detailed_quality=1
                 ;;
             --grayscale) grayscale=1 ;;
             --preserve-metadata)
@@ -1030,8 +1110,22 @@ main() {
             return 2
         fi
     fi
+    if (( quality_explicit && detailed_quality )); then
+        error 'choose one quality approach: use --quality MODE or detailed options (--max-dpi and --jpeg-recompress), not both'
+        return 2
+    fi
+    if [[ -n $max_dpi && ! $max_dpi =~ ^[1-9][0-9]*$ ]]; then
+        error "--max-dpi must be a positive integer: $max_dpi"
+        return 2
+    fi
+    if [[ -n $jpeg_recompress &&
+        ! $jpeg_recompress =~ ^(0(\.[0-9]+)?|1(\.0+)?)$ ]]; then
+        error "--jpeg-recompress QFactor must be between 0.0 and 1.0: $jpeg_recompress"
+        return 2
+    fi
+    (( detailed_quality )) && quality='detailed'
     case $quality in
-        preserve|balanced|small) ;;
+        preserve|balanced|small|detailed) ;;
         *)
             error "unsupported quality mode: $quality"
             return 2
