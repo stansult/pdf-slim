@@ -12,7 +12,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 mkdir -p "$test_dir/cli" "$test_dir/bin" "$test_dir/input/sub" \
-    "$test_dir/other" "$test_dir/empty"
+    "$test_dir/other" "$test_dir/empty" "$test_dir/glob-input"
 cp "$project_dir/pdf-slim.sh" "$test_dir/cli/pdf-slim.sh"
 chmod +x "$test_dir/cli/pdf-slim.sh"
 ln -s "$project_dir/tests/fake-gs.sh" "$test_dir/bin/gs"
@@ -48,6 +48,46 @@ printf '%100s\n' '%PDF-1.7 deep' >"$test_dir/input/sub/deep.pdf"
 printf '%s\n' 'not a PDF' >"$test_dir/input/not.txt"
 ln -s "$test_dir/input/one.pdf" "$test_dir/input/link.pdf"
 printf '%100s\n' '%PDF-1.7 collision' >"$test_dir/other/one.pdf"
+printf '%100s\n' '%PDF-1.7 glob one' >"$test_dir/glob-input/doc-one.pdf"
+printf '%100s\n' '%PDF-1.7 glob two' >"$test_dir/glob-input/doc two.pdf"
+printf '%100s\n' '%PDF-1.7 glob other' >"$test_dir/glob-input/other.pdf"
+
+PATH="$test_path" "$cli" --dry-run \
+    -i "$test_dir/glob-input/doc*.pdf" \
+    --output-dir "$test_dir/glob-output" >"$test_dir/glob.out"
+[[ $(grep -c '^would convert:' "$test_dir/glob.out") -eq 2 ]]
+grep -q 'doc-one.pdf' "$test_dir/glob.out"
+grep -q 'doc two.pdf' "$test_dir/glob.out"
+[[ ! -e $test_dir/glob-output ]]
+
+if PATH="$test_path" "$cli" --dry-run \
+    -i "$test_dir/glob-input/missing*.pdf" \
+    --output-dir "$test_dir/missing-glob-output" \
+    >"$test_dir/missing-glob.out" 2>"$test_dir/missing-glob.err"; then
+    printf '%s\n' 'expected a no-match input pattern to fail' >&2
+    exit 1
+fi
+grep -q 'input pattern matched no paths' "$test_dir/missing-glob.err"
+[[ ! -e $test_dir/missing-glob-output ]]
+
+literal_glob_output=$test_dir/literal-glob-output.pdf
+PATH="$test_path" "$cli" --dry-run \
+    -i "$test_dir/input/[glob]*.pdf" -o "$literal_glob_output" \
+    >"$test_dir/literal-glob.out"
+[[ $(grep -c '^would convert:' "$test_dir/literal-glob.out") -eq 1 ]]
+grep -Fq "$test_dir/input/[glob]*.pdf" "$test_dir/literal-glob.out"
+[[ ! -e $literal_glob_output ]]
+
+if PATH="$test_path" "$cli" -i "$test_dir/glob-input"/doc*.pdf \
+    --output-dir "$test_dir/unquoted-glob-output" \
+    >"$test_dir/unquoted-glob.out" 2>"$test_dir/unquoted-glob.err"; then
+    printf '%s\n' 'expected an unquoted multi-match pattern to fail' >&2
+    exit 1
+fi
+grep -q 'shell may have expanded an unquoted input pattern' \
+    "$test_dir/unquoted-glob.err"
+grep -q "quote patterns passed to --input" "$test_dir/unquoted-glob.err"
+[[ ! -e $test_dir/unquoted-glob-output ]]
 
 exact_output=$test_dir/exact-output.pdf
 FAKE_GS_MODE=success PATH="$test_path" \

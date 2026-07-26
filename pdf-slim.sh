@@ -15,7 +15,8 @@ usage() {
 Usage: $PROGRAM [options]
 
 Input:
-  -i, --input PATH    Input PDF or directory; repeat for multiple inputs
+  -i, --input PATH    Input PDF, directory, or quoted glob pattern;
+                      repeat for multiple inputs
 
 Exactly one output mode is required:
   -o, --output FILE   Write one input PDF to exactly FILE
@@ -52,6 +53,8 @@ PDF extensions are matched case-insensitively. Symlinks are warned about and
 skipped. Existing output files and destination collisions are errors. The
 default metadata policy preserves permissions plus access and modification
 timestamps. The "all" metadata mode is currently macOS-specific.
+Quote input glob patterns so the script receives them unchanged. Unquoted
+multi-match patterns are rejected before any conversion or write.
 
 Exit status: 0 success, 1 one or more conversions failed, 2 invalid/unsafe request.
 EOF
@@ -75,6 +78,25 @@ error() {
 warn() {
     printf '%s: warning: %s\n' "$PROGRAM" "$*" >&2
 }
+
+hint() {
+    printf '%s: hint: %s\n' "$PROGRAM" "$*" >&2
+}
+
+expand_input_pattern() (
+    local pattern=$1
+    local IFS=
+    local -a matches=()
+
+    set +o noglob
+    shopt -s nullglob
+    shopt -u failglob dotglob nocaseglob
+    # Word splitting is disabled by the empty IFS; pathname expansion is
+    # intentionally enabled here so matches remain separate array elements.
+    # shellcheck disable=SC2206
+    matches=( $pattern )
+    (( ${#matches[@]} )) && printf '%s\0' "${matches[@]}"
+)
 
 find_command() {
     local candidate
@@ -913,11 +935,12 @@ main() {
     local grayscale=0
     local reprocess=0
     local recursive=0
-    local arg directory relative output_parent
+    local arg directory relative output_parent input_value match
     local parse_failed=0
     local discovery_failed=0
     local quality_explicit=0
     local detailed_quality=0
+    local pattern_found=0
     local -a inputs=()
     local -a sources=()
     local -a source_keys=()
@@ -949,8 +972,23 @@ main() {
                     parse_failed=1
                     break
                 fi
-                inputs[${#inputs[@]}]=$1
+                input_value=$1
                 shift
+                if [[ -e $input_value || -L $input_value ||
+                    ( $input_value != *'*'* && $input_value != *'?'* &&
+                    $input_value != *'['* ) ]]; then
+                    inputs[${#inputs[@]}]=$input_value
+                    continue
+                fi
+                pattern_found=0
+                while IFS= read -r -d '' match; do
+                    inputs[${#inputs[@]}]=$match
+                    pattern_found=1
+                done < <(expand_input_pattern "$input_value")
+                if (( ! pattern_found )); then
+                    error "input pattern matched no paths: $input_value"
+                    parse_failed=1
+                fi
                 ;;
             -o|--output)
                 if (( $# == 0 )); then
@@ -1051,6 +1089,12 @@ main() {
             -*) error "unknown option: $arg"; parse_failed=1 ;;
             *)
                 error "unexpected positional argument: $arg (use --input PATH)"
+                if (( ${#inputs[@]} )); then
+                    hint 'the shell may have expanded an unquoted input pattern'
+                    hint "quote patterns passed to --input, for example:"
+                    printf "  %s --input '../test/doc*.pdf' --output-dir output\n" \
+                        "$PROGRAM" >&2
+                fi
                 parse_failed=1
                 ;;
         esac

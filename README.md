@@ -10,6 +10,8 @@ Current stable version: `1.0.0`.
 ## Current capabilities
 
 - Accepts multiple PDF files and directories through repeatable `--input`.
+- Expands quoted input glob patterns while rejecting accidental unquoted
+  multi-match expansion.
 - Matches `.pdf` extensions case-insensitively.
 - Supports optional recursive directory traversal.
 - Handles spaces, tabs, glob characters, and leading hyphens safely.
@@ -33,7 +35,8 @@ pdf-slim.sh [options]
 Input paths are explicit and repeatable:
 
 ```text
--i, --input PATH    Input PDF or directory; repeat for multiple inputs
+-i, --input PATH    Input PDF, directory, or quoted glob pattern;
+                    repeat for multiple inputs
 ```
 
 Exactly one output mode is required:
@@ -120,6 +123,18 @@ Convert several individual PDFs into one output directory:
 ./pdf-slim.sh --input invoice.pdf --input handbook.PDF \
   --input "meeting-notes.pdf" --output-dir ./slimmed
 ```
+
+Select matching inputs with a quoted glob pattern:
+
+```bash
+pdf-slim.sh --input '../test/doc*.pdf' --output-dir ./slimmed
+```
+
+Quote patterns containing `*`, `?`, or bracket expressions so `pdf-slim`
+receives the pattern as one argument. An unquoted pattern that the shell expands
+to multiple paths is rejected before conversion or writes, with a hint showing
+the quoted form. A path that already exists is treated literally, even when its
+filename contains glob metacharacters.
 
 Recursively convert a directory while preserving its internal structure:
 

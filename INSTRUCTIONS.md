@@ -127,11 +127,15 @@ The user has approved these decisions:
     through detailed `--max-dpi` / `--jpeg-recompress` controls. Reject commands
     that mix those approaches with a clear explanation. With no quality option,
     default to `preserve`; keep `--grayscale` independent.
+12. Allow quoted basic glob patterns as `--input` values. Prefer an existing
+    literal path when its filename contains glob metacharacters, reject
+    no-match patterns, and reject accidental unquoted multi-match expansion
+    before conversion or writes with a quoting hint.
 
 Planned options:
 
-- `-i PATH`, `--input PATH` — select an input PDF or directory; repeat for
-  multiple inputs.
+- `-i PATH`, `--input PATH` — select an input PDF, directory, or quoted glob
+  pattern; repeat for multiple inputs.
 - `-o FILE`, `--output FILE` — publish one input PDF at an exact filename.
 - `--output-dir DIR` — publish converted PDFs under a separate directory.
 - `--replace` — replace an original only after a valid conversion is strictly
@@ -265,6 +269,8 @@ doubles where useful. At minimum cover:
   creation;
 - preset/detail quality conflicts, detailed value validation, independent
   QFactor and DPI propagation, and detailed grayscale conversion;
+- quoted input glob expansion, no-match failure, existing literal
+  metacharacter filenames, and safe rejection of unquoted multi-match usage;
 - no log update after failure/timeout;
 - dry-run performs no writes and launches no Ghostscript process.
 
