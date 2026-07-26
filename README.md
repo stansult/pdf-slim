@@ -78,8 +78,7 @@ pdf-slim.sh --input . --output-dir slimmed
 Convert one PDF to an exact output filename:
 
 ```bash
-pdf-slim.sh --input "Teen driver letter.pdf" \
-  --output "Teen driver letter (slim).pdf"
+pdf-slim.sh --input annual-report.pdf --output annual-report-slim.pdf
 ```
 
 The exact output mode accepts one regular PDF file. Its parent directory must
@@ -89,20 +88,20 @@ traversal, symlink destinations, and existing destinations.
 Preview a replacement run without starting Ghostscript or changing anything:
 
 ```bash
-./pdf-slim.sh --input report.pdf --dry-run --replace
+./pdf-slim.sh --input draft-proposal.pdf --dry-run --replace
 ```
 
 Create a converted copy while leaving the original untouched:
 
 ```bash
-./pdf-slim.sh --input report.pdf --output-dir ./slimmed
+./pdf-slim.sh --input scanned-contract.pdf --output-dir ./slimmed
 ```
 
 Convert several individual PDFs into one output directory:
 
 ```bash
 ./pdf-slim.sh --input invoice.pdf --input handbook.PDF \
-  --input "meeting notes.pdf" --output-dir ./slimmed
+  --input "meeting-notes.pdf" --output-dir ./slimmed
 ```
 
 Recursively convert a directory while preserving its internal structure:
@@ -114,7 +113,7 @@ Recursively convert a directory while preserving its internal structure:
 Replace an original only when the validated conversion is strictly smaller:
 
 ```bash
-./pdf-slim.sh --input large-report.pdf --replace
+./pdf-slim.sh --input research-paper.pdf --replace
 ```
 
 Process every PDF beneath an archive. Successfully handled, unchanged files
@@ -134,28 +133,29 @@ replacement log:
 Preserve permissions and timestamps using the default `standard` policy:
 
 ```bash
-./pdf-slim.sh --input report.pdf --replace --preserve-metadata standard
+./pdf-slim.sh --input signed-agreement.pdf --replace \
+  --preserve-metadata standard
 ```
 
 On macOS, also require ownership, file flags, ACLs, and extended attributes such
 as Finder tags to be preserved:
 
 ```bash
-./pdf-slim.sh --input tagged-report.pdf --replace --preserve-metadata all
+./pdf-slim.sh --input tagged-document.pdf --replace --preserve-metadata all
 ```
 
 Create output without copying source metadata, letting the new file retain its
 naturally created metadata:
 
 ```bash
-./pdf-slim.sh --input report.pdf --output-dir ./slimmed \
+./pdf-slim.sh --input archived-statement.pdf --output-dir ./slimmed \
   --preserve-metadata none
 ```
 
 Explicitly create a grayscale PDF:
 
 ```bash
-./pdf-slim.sh --input color-report.pdf --output-dir ./grayscale --grayscale
+./pdf-slim.sh --input color-brochure.pdf --output-dir ./grayscale --grayscale
 ```
 
 Set a shorter per-file conversion limit for a batch:

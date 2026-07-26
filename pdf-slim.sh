@@ -14,21 +14,21 @@ usage() {
 Usage: $PROGRAM [options]
 
 Input:
-  -i, --input PATH  Input PDF or directory; repeat for multiple inputs
+  -i, --input PATH    Input PDF or directory; repeat for multiple inputs
 
 Exactly one output mode is required:
-  -o, --output FILE  Write one input PDF to exactly FILE
-  --output-dir DIR   Preserve input-relative paths beneath DIR
-  --replace          Replace originals only when safe conversion is smaller
+  -o, --output FILE   Write one input PDF to exactly FILE
+  --output-dir DIR    Preserve input-relative paths beneath DIR
+  --replace           Replace originals only when safe conversion is smaller
 
 Options:
-  --recursive        Descend into supplied directories
-  --reprocess        Reprocess files that match the replacement log; all safety
+  --recursive         Descend into supplied directories
+  --reprocess         Reprocess files that match the replacement log; all safety
                       checks remain enabled (requires --replace)
-  --timeout DURATION Per-file conversion timeout (default: 1h)
-  --dry-run          Print planned actions; run no Ghostscript and write nothing
-  --quality MODE     Image policy: preserve (default), balanced, or small
-  --grayscale        Request explicit grayscale conversion
+  --timeout DURATION  Per-file conversion timeout (default: 1h)
+  --dry-run           Print planned actions; run no Ghostscript and write nothing
+  --quality MODE      Image policy: preserve (default), balanced, or small
+  --grayscale         Request explicit grayscale conversion
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
