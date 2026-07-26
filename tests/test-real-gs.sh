@@ -41,10 +41,10 @@ for quality in preserve balanced small; do
         output_dir=$test_dir/$quality-$color_mode
         if [[ $color_mode == grayscale ]]; then
             "$cli" --quality "$quality" --grayscale --output-dir "$output_dir" \
-                "$source_pdf" >/dev/null
+                -i "$source_pdf" >/dev/null
         else
             "$cli" --quality "$quality" --output-dir "$output_dir" \
-                "$source_pdf" >/dev/null
+                -i "$source_pdf" >/dev/null
         fi
         output_pdf=$output_dir/source.pdf
         [[ -s $output_pdf ]]
@@ -53,7 +53,7 @@ for quality in preserve balanced small; do
 done
 
 exact_pdf=$test_dir/exact.pdf
-"$cli" --quality balanced -o "$exact_pdf" "$source_pdf" >/dev/null
+"$cli" --quality balanced -o "$exact_pdf" -i "$source_pdf" >/dev/null
 [[ -s $exact_pdf ]]
 gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$exact_pdf"
 
@@ -61,7 +61,7 @@ replace_pdf=$test_dir/replace.pdf
 cp "$source_pdf" "$replace_pdf"
 dd if=/dev/zero bs=1024 count=100 >>"$replace_pdf" 2>/dev/null
 original_size=$(stat -f '%z' "$replace_pdf")
-"$cli" --quality balanced --replace "$replace_pdf" >/dev/null
+"$cli" --quality balanced --replace -i "$replace_pdf" >/dev/null
 [[ $(stat -f '%z' "$replace_pdf") -lt $original_size ]]
 gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$replace_pdf"
 

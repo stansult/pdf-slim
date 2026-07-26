@@ -107,7 +107,7 @@ printf '%1000s\n' '%PDF-1.7 interrupt source' >"$interrupt_pdf"
 interrupt_hash=$(shasum -a 256 "$interrupt_pdf")
 FAKE_GS_MODE=sleep PATH="$test_dir/bin:$PATH" \
     "$project_dir/pdf-slim.sh" --output-dir "$test_dir/interrupt-output" \
-    "$interrupt_pdf" >/dev/null 2>&1 &
+    -i "$interrupt_pdf" >/dev/null 2>&1 &
 process_id=$!
 sleep 0.2
 kill -TERM "$process_id"
@@ -124,7 +124,7 @@ race_destination=$test_dir/race-output.pdf
 printf '%1000s\n' '%PDF-1.7 race source' >"$race_pdf"
 FAKE_GS_MODE=sleep PATH="$test_dir/bin:$PATH" \
     "$project_dir/pdf-slim.sh" -o "$race_destination" \
-    "$race_pdf" >/dev/null 2>&1 &
+    -i "$race_pdf" >/dev/null 2>&1 &
 process_id=$!
 sleep 0.2
 printf '%s\n' 'existing destination' >"$race_destination"

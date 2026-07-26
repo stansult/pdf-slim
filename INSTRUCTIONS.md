@@ -101,7 +101,7 @@ the new thread because environment state can change.
 The canonical command will be:
 
 ```bash
-pdf-slim.sh [options] [FILE_OR_DIRECTORY ...]
+pdf-slim.sh [options]
 ```
 
 The user has approved these decisions:
@@ -120,9 +120,14 @@ The user has approved these decisions:
 9. `-o FILE` / `--output FILE` is for one-off conversion of exactly one regular
    PDF to an exact filename. It does not accept directories, multiple inputs, or
    `--recursive`; its parent directory must already exist.
+10. Require `-i PATH` / `--input PATH` for every input. Repeat it for multiple
+    files or directories. Positional inputs and the `--` terminator are not
+    supported.
 
 Planned options:
 
+- `-i PATH`, `--input PATH` — select an input PDF or directory; repeat for
+  multiple inputs.
 - `-o FILE`, `--output FILE` — publish one input PDF at an exact filename.
 - `--output-dir DIR` — publish converted PDFs under a separate directory.
 - `--replace` — replace an original only after a valid conversion is strictly
@@ -136,11 +141,11 @@ Planned options:
 - `--grayscale` — explicit and independent of quality mode.
 - `--help` — document usage, defaults, behavior, and statuses.
 - `--version` — add once useful; a development version is acceptable early.
-- `--` — terminate option parsing so leading-hyphen filenames are safe.
 
-Accept multiple files and directories. Correctly handle spaces, tabs, glob
-characters, and leading hyphens. Use Bash arrays and null-delimited traversal;
-do not use string-based file loops, parse `ls`, or globally change `IFS`.
+Accept multiple files and directories through repeated `--input` options.
+Correctly handle spaces, tabs, glob characters, and leading hyphens. Use Bash
+arrays and null-delimited traversal; do not use string-based file loops, parse
+`ls`, or globally change `IFS`.
 
 One output-layout detail remains to implement carefully: when several supplied
 roots would map different sources to the same destination, detect the collision

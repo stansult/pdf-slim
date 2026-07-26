@@ -9,7 +9,7 @@ Current stable version: `1.0.0`.
 
 ## Current capabilities
 
-- Accepts multiple PDF files and directories.
+- Accepts multiple PDF files and directories through repeatable `--input`.
 - Matches `.pdf` extensions case-insensitively.
 - Supports optional recursive directory traversal.
 - Handles spaces, tabs, glob characters, and leading hyphens safely.
@@ -27,15 +27,21 @@ Current stable version: `1.0.0`.
 ## Usage
 
 ```text
-pdf-slim.sh [options] [--] FILE_OR_DIRECTORY ...
+pdf-slim.sh [options]
+```
+
+Input paths are explicit and repeatable:
+
+```text
+-i, --input PATH  Input PDF or directory; repeat for multiple inputs
 ```
 
 Exactly one output mode is required:
 
 ```text
--o, --output FILE Write one input PDF to exactly FILE
---output-dir DIR   Write output beneath DIR, preserving relative paths
---replace          Replace originals only when converted files are smaller
+-o, --output FILE  Write one input PDF to exactly FILE
+--output-dir DIR   Preserve input-relative paths beneath DIR
+--replace          Replace originals only when safe conversion is smaller
 ```
 
 Current options:
@@ -52,7 +58,6 @@ Current options:
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
   --version           Show the version and exit
-  --                  End option parsing
 ```
 
 ## Use cases
@@ -67,13 +72,14 @@ pdf-slim.sh --help
 Process PDFs in the current directory, writing converted copies into `slimmed`:
 
 ```bash
-pdf-slim.sh --output-dir slimmed .
+pdf-slim.sh --input . --output-dir slimmed
 ```
 
 Convert one PDF to an exact output filename:
 
 ```bash
-pdf-slim.sh -o "Teen driver letter (slim).pdf" "Teen driver letter.pdf"
+pdf-slim.sh --input "Teen driver letter.pdf" \
+  --output "Teen driver letter (slim).pdf"
 ```
 
 The exact output mode accepts one regular PDF file. Its parent directory must
@@ -83,83 +89,86 @@ traversal, symlink destinations, and existing destinations.
 Preview a replacement run without starting Ghostscript or changing anything:
 
 ```bash
-./pdf-slim.sh --dry-run --replace report.pdf
+./pdf-slim.sh --input report.pdf --dry-run --replace
 ```
 
 Create a converted copy while leaving the original untouched:
 
 ```bash
-./pdf-slim.sh --output-dir ./slimmed report.pdf
+./pdf-slim.sh --input report.pdf --output-dir ./slimmed
 ```
 
 Convert several individual PDFs into one output directory:
 
 ```bash
-./pdf-slim.sh --output-dir ./slimmed invoice.pdf handbook.PDF "meeting notes.pdf"
+./pdf-slim.sh --input invoice.pdf --input handbook.PDF \
+  --input "meeting notes.pdf" --output-dir ./slimmed
 ```
 
 Recursively convert a directory while preserving its internal structure:
 
 ```bash
-./pdf-slim.sh --output-dir ./slimmed --recursive ./documents
+./pdf-slim.sh --input ./documents --output-dir ./slimmed --recursive
 ```
 
 Replace an original only when the validated conversion is strictly smaller:
 
 ```bash
-./pdf-slim.sh --replace large-report.pdf
+./pdf-slim.sh --input large-report.pdf --replace
 ```
 
 Process every PDF beneath an archive. Successfully handled, unchanged files
 recorded in `processed_pdfs.log` are skipped on later runs:
 
 ```bash
-./pdf-slim.sh --replace --recursive ./archive
+./pdf-slim.sh --input ./archive --replace --recursive
 ```
 
 Retry files even when their current path, size, and modification time match the
 replacement log:
 
 ```bash
-./pdf-slim.sh --replace --reprocess --recursive ./archive
+./pdf-slim.sh --input ./archive --replace --reprocess --recursive
 ```
 
 Preserve permissions and timestamps using the default `standard` policy:
 
 ```bash
-./pdf-slim.sh --replace --preserve-metadata standard report.pdf
+./pdf-slim.sh --input report.pdf --replace --preserve-metadata standard
 ```
 
 On macOS, also require ownership, file flags, ACLs, and extended attributes such
 as Finder tags to be preserved:
 
 ```bash
-./pdf-slim.sh --replace --preserve-metadata all tagged-report.pdf
+./pdf-slim.sh --input tagged-report.pdf --replace --preserve-metadata all
 ```
 
 Create output without copying source metadata, letting the new file retain its
 naturally created metadata:
 
 ```bash
-./pdf-slim.sh --output-dir ./slimmed --preserve-metadata none report.pdf
+./pdf-slim.sh --input report.pdf --output-dir ./slimmed \
+  --preserve-metadata none
 ```
 
 Explicitly create a grayscale PDF:
 
 ```bash
-./pdf-slim.sh --output-dir ./grayscale --grayscale color-report.pdf
+./pdf-slim.sh --input color-report.pdf --output-dir ./grayscale --grayscale
 ```
 
 Set a shorter per-file conversion limit for a batch:
 
 ```bash
-./pdf-slim.sh --replace --recursive --timeout 10m ./incoming
+./pdf-slim.sh --input ./incoming --replace --recursive --timeout 10m
 ```
 
-Use `--` before a filename beginning with a hyphen:
+Input and output paths beginning with a hyphen are consumed explicitly as
+option values:
 
 ```bash
-./pdf-slim.sh --dry-run --replace -- -leading-hyphen.pdf
+./pdf-slim.sh --input -leading-hyphen.pdf --output -slimmed.pdf
 ```
 
 Exit statuses are `0` for success, `1` when one or more conversions fail, and

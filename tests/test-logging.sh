@@ -21,7 +21,7 @@ log_file=$test_dir/cli/processed_pdfs.log
 printf '%1000s\n' '%PDF-1.7 logging source' >"$source_pdf"
 
 FAKE_GS_MODE=success PATH="$test_dir/bin:$PATH" \
-    "$test_dir/cli/pdf-slim.sh" --replace "$source_pdf" >/dev/null
+    "$test_dir/cli/pdf-slim.sh" --replace -i "$source_pdf" >/dev/null
 [[ -f $log_file && ! -L $log_file ]]
 [[ $(stat -f '%Lp' "$log_file") == 600 ]]
 
@@ -38,14 +38,14 @@ exec 3<&-
 
 log_hash=$(shasum -a 256 "$log_file")
 FAKE_GS_MODE=failure PATH="$test_dir/bin:$PATH" \
-    "$test_dir/cli/pdf-slim.sh" --replace "$source_pdf" >"$test_dir/skip-output"
+    "$test_dir/cli/pdf-slim.sh" --replace -i "$source_pdf" >"$test_dir/skip-output"
 [[ $(shasum -a 256 "$log_file") == "$log_hash" ]]
 grep -q 'skipped unchanged file recorded as processed' "$test_dir/skip-output"
 
 dd if=/dev/zero bs=64 count=1 >>"$source_pdf" 2>/dev/null
 changed_hash=$(shasum -a 256 "$source_pdf")
 if FAKE_GS_MODE=partial-failure PATH="$test_dir/bin:$PATH" \
-    "$test_dir/cli/pdf-slim.sh" --replace "$source_pdf" >/dev/null 2>&1; then
+    "$test_dir/cli/pdf-slim.sh" --replace -i "$source_pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected changed file conversion to be attempted and fail' >&2
     exit 1
 fi
@@ -53,14 +53,15 @@ fi
 [[ $(shasum -a 256 "$log_file") == "$log_hash" ]]
 
 if FAKE_GS_MODE=partial-failure PATH="$test_dir/bin:$PATH" \
-    "$test_dir/cli/pdf-slim.sh" --replace --reprocess "$source_pdf" >/dev/null 2>&1; then
+    "$test_dir/cli/pdf-slim.sh" --replace --reprocess \
+    -i "$source_pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected forced conversion failure' >&2
     exit 1
 fi
 [[ $(shasum -a 256 "$log_file") == "$log_hash" ]]
 
 FAKE_GS_MODE=success PATH="$test_dir/bin:$PATH" \
-    "$test_dir/cli/pdf-slim.sh" --replace "$source_pdf" >/dev/null
+    "$test_dir/cli/pdf-slim.sh" --replace -i "$source_pdf" >/dev/null
 record_count=0
 exec 3<"$log_file"
 IFS= read -r -d '' header <&3
@@ -77,7 +78,8 @@ malformed_source=$test_dir/malformed.pdf
 printf '%1000s\n' '%PDF-1.7 malformed log source' >"$malformed_source"
 malformed_hash=$(shasum -a 256 "$malformed_source")
 if FAKE_GS_MODE=success PATH="$test_dir/bin:$PATH" \
-    "$test_dir/cli/pdf-slim.sh" --replace "$malformed_source" >/dev/null 2>&1; then
+    "$test_dir/cli/pdf-slim.sh" --replace \
+    -i "$malformed_source" >/dev/null 2>&1; then
     printf '%s\n' 'expected malformed log to be refused' >&2
     exit 1
 fi

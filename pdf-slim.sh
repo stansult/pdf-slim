@@ -11,10 +11,13 @@ LOG_MAGIC='pdf-slim-log-v1'
 
 usage() {
     cat <<EOF
-Usage: $PROGRAM [options] [--] FILE_OR_DIRECTORY ...
+Usage: $PROGRAM [options]
+
+Input:
+  -i, --input PATH  Input PDF or directory; repeat for multiple inputs
 
 Exactly one output mode is required:
-  -o, --output FILE Write one input PDF to exactly FILE
+  -o, --output FILE  Write one input PDF to exactly FILE
   --output-dir DIR   Preserve input-relative paths beneath DIR
   --replace          Replace originals only when safe conversion is smaller
 
@@ -30,7 +33,6 @@ Options:
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
   --version           Show the version and exit
-  --                  End option parsing
 
 PDF extensions are matched case-insensitively. Symlinks are warned about and
 skipped. Existing output files and destination collisions are errors. The
@@ -44,10 +46,10 @@ EOF
 usage_hint() {
     cat >&2 <<EOF
 Choose how to handle converted PDFs. For the current directory:
-  $PROGRAM --output-dir slimmed .
-  $PROGRAM --replace .
+  $PROGRAM --input . --output-dir slimmed
+  $PROGRAM --input . --replace
 For a single PDF:
-  $PROGRAM -o compressed.pdf original.pdf
+  $PROGRAM --input original.pdf -o compressed.pdf
 Run '$PROGRAM --help' for full usage.
 EOF
 }
@@ -854,7 +856,6 @@ main() {
     local grayscale=0
     local reprocess=0
     local recursive=0
-    local end_options=0
     local arg directory relative output_parent
     local parse_failed=0
     local discovery_failed=0
@@ -882,11 +883,16 @@ main() {
     while (( $# )); do
         arg=$1
         shift
-        if (( end_options )); then
-            inputs[${#inputs[@]}]=$arg
-            continue
-        fi
         case $arg in
+            -i|--input)
+                if (( $# == 0 )); then
+                    error "$arg requires a path argument"
+                    parse_failed=1
+                    break
+                fi
+                inputs[${#inputs[@]}]=$1
+                shift
+                ;;
             -o|--output)
                 if (( $# == 0 )); then
                     error "$arg requires a file argument"
@@ -958,9 +964,15 @@ main() {
                 ;;
             -h|--help) usage; return 0 ;;
             --version) printf '%s %s\n' "$PROGRAM" "$VERSION"; return 0 ;;
-            --) end_options=1 ;;
+            --)
+                error "'--' is not supported; use --input PATH"
+                parse_failed=1
+                ;;
             -*) error "unknown option: $arg"; parse_failed=1 ;;
-            *) inputs[${#inputs[@]}]=$arg ;;
+            *)
+                error "unexpected positional argument: $arg (use --input PATH)"
+                parse_failed=1
+                ;;
         esac
     done
 
@@ -1045,7 +1057,7 @@ main() {
         return 2
     fi
     if (( ${#inputs[@]} == 0 )); then
-        error 'at least one file or directory is required'
+        error 'at least one --input PATH is required'
         usage_hint
         return 2
     fi

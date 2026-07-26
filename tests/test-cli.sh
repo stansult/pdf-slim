@@ -29,8 +29,8 @@ if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; 
     exit 1
 fi
 [[ ! -s $test_dir/no-args.out ]]
-grep -q -- '--output-dir slimmed \.' "$test_dir/no-args.err"
-grep -q -- '--replace \.' "$test_dir/no-args.err"
+grep -q -- '--input \. --output-dir slimmed' "$test_dir/no-args.err"
+grep -q -- '--input \. --replace' "$test_dir/no-args.err"
 grep -q -- '--help' "$test_dir/no-args.err"
 
 printf '%100s\n' '%PDF-1.7 one' >"$test_dir/input/one.pdf"
@@ -47,15 +47,15 @@ printf '%100s\n' '%PDF-1.7 collision' >"$test_dir/other/one.pdf"
 
 exact_output=$test_dir/exact-output.pdf
 FAKE_GS_MODE=success PATH="$test_path" \
-    "$cli" -o "$exact_output" "$test_dir/input/one.pdf" >/dev/null
+    "$cli" -i "$test_dir/input/one.pdf" -o "$exact_output" >/dev/null
 [[ -s $exact_output ]]
 [[ ! -e $test_dir/cli/processed_pdfs.log ]]
 
 exact_dry_output=$test_dir/exact-dry-output.pdf
 exact_dry_args=$test_dir/exact-dry-args
 FAKE_GS_MODE=failure FAKE_GS_ARGS_FILE="$exact_dry_args" PATH="$test_path" \
-    "$cli" --dry-run --output "$exact_dry_output" \
-    "$test_dir/input/one.pdf" >"$test_dir/exact-dry.out"
+    "$cli" --dry-run --input "$test_dir/input/one.pdf" \
+    --output "$exact_dry_output" >"$test_dir/exact-dry.out"
 [[ ! -e $exact_dry_output ]]
 [[ ! -e $exact_dry_args ]]
 grep -q "would convert: .* -> $exact_dry_output" "$test_dir/exact-dry.out"
@@ -63,7 +63,7 @@ grep -q "would convert: .* -> $exact_dry_output" "$test_dir/exact-dry.out"
 exact_failure_output=$test_dir/exact-failure-output.pdf
 exact_source_hash=$(shasum -a 256 "$test_dir/input/one.pdf")
 if FAKE_GS_MODE=partial-failure PATH="$test_path" \
-    "$cli" -o "$exact_failure_output" "$test_dir/input/one.pdf" \
+    "$cli" -i "$test_dir/input/one.pdf" -o "$exact_failure_output" \
     >/dev/null 2>&1; then
     printf '%s\n' 'expected an exact-output conversion failure' >&2
     exit 1
@@ -71,45 +71,46 @@ fi
 [[ ! -e $exact_failure_output ]]
 [[ $(shasum -a 256 "$test_dir/input/one.pdf") == "$exact_source_hash" ]]
 
-if PATH="$test_path" "$cli" -o "$exact_output" \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+if PATH="$test_path" "$cli" -i "$test_dir/input/one.pdf" \
+    -o "$exact_output" >/dev/null 2>&1; then
     printf '%s\n' 'expected an existing exact output to be refused' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" -o "$test_dir/multiple.pdf" \
-    "$test_dir/input/one.pdf" "$test_dir/input/UPPER.PDF" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" -i "$test_dir/input/UPPER.PDF" \
+    >/dev/null 2>&1; then
     printf '%s\n' 'expected exact output with multiple inputs to be refused' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" -o "$test_dir/directory.pdf" \
-    "$test_dir/input" >/dev/null 2>&1; then
+    -i "$test_dir/input" >/dev/null 2>&1; then
     printf '%s\n' 'expected exact output with a directory input to be refused' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" --recursive -o "$test_dir/recursive.pdf" \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected recursive exact output to be refused' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" -o "$test_dir/missing/output.pdf" \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected a missing exact-output parent to be refused' >&2
     exit 1
 fi
 ln -s "$test_dir/symlink-target.pdf" "$test_dir/symlink-output.pdf"
 if PATH="$test_path" "$cli" -o "$test_dir/symlink-output.pdf" \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected a symlink exact output to be refused' >&2
     exit 1
 fi
 [[ ! -e $test_dir/symlink-target.pdf ]]
 if PATH="$test_path" "$cli" -o "$test_dir/conflict-file.pdf" --replace \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected exact output and replacement to conflict' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" --output-dir "$test_dir/conflict-dir" \
-    -o "$test_dir/conflict-file.pdf" "$test_dir/input/one.pdf" \
+    -o "$test_dir/conflict-file.pdf" -i "$test_dir/input/one.pdf" \
     >/dev/null 2>&1; then
     printf '%s\n' 'expected exact and directory output modes to conflict' >&2
     exit 1
@@ -118,7 +119,7 @@ fi
 args_file=$test_dir/gs-args
 FAKE_GS_MODE=failure FAKE_GS_ARGS_FILE="$args_file" PATH="$test_path" \
     "$cli" --dry-run --output-dir "$test_dir/dry-output" \
-    "$test_dir/input" >"$test_dir/nonrecursive.out" 2>"$test_dir/nonrecursive.err"
+    -i "$test_dir/input" >"$test_dir/nonrecursive.out" 2>"$test_dir/nonrecursive.err"
 [[ ! -e $test_dir/dry-output ]]
 [[ ! -e $args_file ]]
 [[ $(grep -c '^would convert:' "$test_dir/nonrecursive.out") -eq 6 ]]
@@ -130,12 +131,13 @@ grep -q 'skipping symlink:' "$test_dir/nonrecursive.err"
 grep -q 'skipping non-PDF file:' "$test_dir/nonrecursive.err"
 
 PATH="$test_path" "$cli" --dry-run --replace --recursive \
-    "$test_dir/input" >"$test_dir/recursive.out" 2>"$test_dir/recursive.err"
+    -i "$test_dir/input" >"$test_dir/recursive.out" 2>"$test_dir/recursive.err"
 [[ $(grep -c '^would replace if smaller:' "$test_dir/recursive.out") -eq 7 ]]
 grep -q 'deep.pdf' "$test_dir/recursive.out"
 
 FAKE_GS_MODE=success PATH="$test_path" "$cli" --quality balanced \
-    --output-dir "$test_dir/output" --recursive "$test_dir/input" >/dev/null 2>&1
+    --output-dir "$test_dir/output" --recursive \
+    -i "$test_dir/input" >/dev/null 2>&1
 [[ -s $test_dir/output/one.pdf ]]
 [[ -s $test_dir/output/UPPER.PDF ]]
 [[ -s "$test_dir/output/name with spaces.pdf" ]]
@@ -146,57 +148,69 @@ FAKE_GS_MODE=success PATH="$test_path" "$cli" --quality balanced \
 [[ ! -e $test_dir/output/link.pdf ]]
 
 if PATH="$test_path" "$cli" --output-dir "$test_dir/output" \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected existing output destination to be refused' >&2
     exit 1
 fi
 
 if PATH="$test_path" "$cli" --dry-run --output-dir "$test_dir/collision" \
-    "$test_dir/input" "$test_dir/other" >/dev/null 2>&1; then
+    -i "$test_dir/input" -i "$test_dir/other" >/dev/null 2>&1; then
     printf '%s\n' 'expected cross-root destination collision to be refused' >&2
     exit 1
 fi
 
-PATH="$test_path" "$cli" --dry-run --replace "$test_dir/empty" \
+PATH="$test_path" "$cli" --dry-run --replace -i "$test_dir/empty" \
     >"$test_dir/empty.out" 2>"$test_dir/empty.err"
 grep -q 'no PDF files selected for processing' "$test_dir/empty.err"
 
-if PATH="$test_path" "$cli" --replace "$test_dir/missing.pdf" >/dev/null 2>&1; then
+if PATH="$test_path" "$cli" --replace -i "$test_dir/missing.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected missing input to fail' >&2
     exit 1
 fi
-if PATH="$test_path" "$cli" "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+if PATH="$test_path" "$cli" -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected missing output mode to fail' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" --replace --output-dir "$test_dir/conflict" \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected mutually exclusive output modes to fail' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" --quality unknown --replace \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected unknown quality to fail' >&2
     exit 1
 fi
 if PATH="$test_path" "$cli" --preserve-metadata unknown --replace \
-    "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected unknown metadata mode to fail' >&2
     exit 1
 fi
+if PATH="$test_path" "$cli" --replace "$test_dir/input/one.pdf" \
+    >"$test_dir/positional.out" 2>"$test_dir/positional.err"; then
+    printf '%s\n' 'expected a positional input to be refused' >&2
+    exit 1
+fi
+grep -q 'use --input PATH' "$test_dir/positional.err"
+if PATH="$test_path" "$cli" --replace -- \
+    >"$test_dir/double-dash.out" 2>"$test_dir/double-dash.err"; then
+    printf '%s\n' "expected '--' to be refused" >&2
+    exit 1
+fi
+grep -q "'--' is not supported; use --input PATH" "$test_dir/double-dash.err"
 
 leading_dir=$test_dir/leading
 mkdir "$leading_dir"
 printf '%100s\n' '%PDF-1.7 leading' >"$leading_dir/-leading.pdf"
 (
     cd "$leading_dir"
-    PATH="$test_path" "$cli" --dry-run --replace -- -leading.pdf >/dev/null
+    PATH="$test_path" "$cli" --dry-run --replace -i -leading.pdf >/dev/null
     FAKE_GS_MODE=success PATH="$test_path" \
-        "$cli" -o -output.pdf -- -leading.pdf >/dev/null
+        "$cli" -o -output.pdf -i -leading.pdf >/dev/null
     [[ -s ./-output.pdf ]]
 )
 
-PATH="$test_path" "$cli" --dry-run --replace "$test_dir/input/link.pdf" \
+PATH="$test_path" "$cli" --dry-run --replace -i "$test_dir/input/link.pdf" \
     >"$test_dir/symlink.out" 2>"$test_dir/symlink.err"
 grep -q 'skipping symlink:' "$test_dir/symlink.err"
 [[ ! -s $test_dir/symlink.out ]]
