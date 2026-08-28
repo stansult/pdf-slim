@@ -27,6 +27,8 @@ grep -q -- 'Quality -- choose one approach:' "$test_dir/help-long.out"
 grep -q -- '--max-dpi DPI' "$test_dir/help-long.out"
 grep -q -- '--jpeg-recompress Q' "$test_dir/help-long.out"
 grep -q -- 'Do not combine --quality' "$test_dir/help-long.out"
+grep -q -- '--clean-scan MODE' "$test_dir/help-long.out"
+grep -q -- 'gentle, standard, or' "$test_dir/help-long.out"
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -242,6 +244,14 @@ if PATH="$test_path" "$cli" --quality balanced --max-dpi 275 --replace \
     exit 1
 fi
 grep -q 'choose one quality approach' "$test_dir/quality-conflict.err"
+if PATH="$test_path" "$cli" --clean-scan extreme --replace \
+    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    printf '%s\n' 'expected unknown scan cleanup mode to fail' >&2
+    exit 1
+fi
+PATH="$test_path" "$cli" --dry-run --clean-scan standard --replace \
+    -i "$test_dir/input/one.pdf" >"$test_dir/clean-dry.out"
+grep -q 'would clean scan (standard):' "$test_dir/clean-dry.out"
 if PATH="$test_path" "$cli" --max-dpi 0 --replace \
     -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
     printf '%s\n' 'expected zero maximum DPI to be refused' >&2

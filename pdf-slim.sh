@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 
-# Safe PDF size reduction with explicit input/output modes, configurable image
-# quality, reliable Ghostscript conversion, atomic publication, metadata
-# preservation, and replacement logging.
+# Safe PDF size reduction and scan cleanup with explicit input/output modes,
+# configurable image quality, reliable conversion, atomic publication,
+# metadata preservation, and replacement logging.
 
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.0.0'
+VERSION='1.1.0'
 LOG_MAGIC='pdf-slim-log-v1'
 
 usage() {
@@ -38,6 +38,12 @@ Quality -- choose one approach:
 
 Do not combine --quality with --max-dpi or --jpeg-recompress.
 
+Scan cleanup:
+  --clean-scan MODE      Improve an image-only scan using gentle, standard, or
+                         strong contrast cleanup while retaining color
+                         (default with no quality options: source DPI and JPEG
+                         QFactor 0.10; --grayscale remains independent)
+
 Options:
   --recursive         Descend into supplied directories
   --reprocess         Reprocess files that match the replacement log; all safety
@@ -53,6 +59,9 @@ PDF extensions are matched case-insensitively. Symlinks are warned about and
 skipped. Existing output files and destination collisions are errors. The
 default metadata policy preserves permissions plus access and modification
 timestamps. The "all" metadata mode is currently macOS-specific.
+Scan cleanup requires ImageMagick and Poppler. It safely refuses PDFs with
+detectable text, forms, attachments, links, vector content, or other layouts
+that cannot be flattened as image-only scans without losing content.
 Quote input glob patterns so the script receives them unchanged. Unquoted
 multi-match patterns are rejected before any conversion or write.
 
@@ -438,6 +447,280 @@ ensure_output_parent() {
     done
 }
 
+remove_scan_directory() {
+    local directory=$1
+
+    [[ -n $directory ]] || return 0
+    if [[ ${directory##*/} != pdf-slim-scan.* ]]; then
+        error "refusing to remove unexpected scan temporary directory: $directory"
+        return 1
+    fi
+    if [[ -e $directory || -L $directory ]]; then
+        rm -rf -- "$directory"
+    fi
+}
+
+run_scan_command() {
+    local stage=$1
+    local source=$2
+    local timeout_command=$3
+    local timeout_duration=$4
+    local status
+    shift 4
+
+    SCAN_COMMAND_OUTPUT=$("$timeout_command" -- "$timeout_duration" "$@" 2>&1)
+    status=$?
+    if (( status == 0 )); then
+        return 0
+    fi
+    if (( status == 124 )); then
+        error "$stage timed out after $timeout_duration: $source"
+    else
+        error "$stage failed with status $status: $source"
+    fi
+    [[ -z $SCAN_COMMAND_OUTPUT ]] || printf '%s\n' "$SCAN_COMMAND_OUTPUT" >&2
+    return 1
+}
+
+inspect_scan_pdf() {
+    local source=$1
+    local scan_directory=$2
+    local timeout_command=$3
+    local timeout_duration=$4
+    local gs_command=$5
+    local magick_command=$6
+    local pdfinfo_command=$7
+    local pdfimages_command=$8
+    local pdftotext_command=$9
+    local pdfdetach_command=${10}
+    local pages encrypted form javascript compact page type
+    local x_dpi y_dpi page_width page_height minimum residual
+    local i
+    local -a image_counts=()
+    local -a fields=()
+
+    run_scan_command 'PDF inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$pdfinfo_command" "$source" || return 1
+    pages=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | \
+        awk -F: '$1 == "Pages" { sub(/^[[:space:]]+/, "", $2); print $2; exit }')
+    encrypted=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | \
+        awk -F: '$1 == "Encrypted" { sub(/^[[:space:]]+/, "", $2); print $2; exit }')
+    form=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | \
+        awk -F: '$1 == "Form" { sub(/^[[:space:]]+/, "", $2); print $2; exit }')
+    javascript=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | \
+        awk -F: '$1 == "JavaScript" { sub(/^[[:space:]]+/, "", $2); print $2; exit }')
+    if [[ ! $pages =~ ^[1-9][0-9]*$ ]]; then
+        error "could not determine a positive page count for scan cleanup: $source"
+        return 1
+    fi
+    if [[ $encrypted != no ]]; then
+        error "scan cleanup requires an unencrypted PDF: $source"
+        return 1
+    fi
+    if [[ $form != none ]]; then
+        error "scan cleanup refuses PDFs containing forms: $source"
+        return 1
+    fi
+    if [[ $javascript != no ]]; then
+        error "scan cleanup refuses PDFs containing JavaScript: $source"
+        return 1
+    fi
+
+    run_scan_command 'page geometry inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$pdfinfo_command" -f 1 -l "$pages" -box \
+        "$source" || return 1
+    SCAN_PAGE_WIDTH=()
+    SCAN_PAGE_HEIGHT=()
+    while read -r -a fields; do
+        [[ ${fields[0]:-} == Page && ${fields[2]:-} == size: ]] || continue
+        page=${fields[1]:-}
+        page_width=${fields[3]:-}
+        page_height=${fields[5]:-}
+        if [[ $page =~ ^[1-9][0-9]*$ &&
+            $page_width =~ ^[0-9]+([.][0-9]+)?$ &&
+            $page_height =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            SCAN_PAGE_WIDTH[page]=$page_width
+            SCAN_PAGE_HEIGHT[page]=$page_height
+        fi
+    done <<<"$SCAN_COMMAND_OUTPUT"
+    i=1
+    while (( i <= pages )); do
+        if [[ -z ${SCAN_PAGE_WIDTH[$i]:-} || -z ${SCAN_PAGE_HEIGHT[$i]:-} ]]; then
+            error "could not determine page geometry for scan cleanup (page $i): $source"
+            return 1
+        fi
+        ((i += 1))
+    done
+
+    run_scan_command 'text inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$pdftotext_command" "$source" - || return 1
+    compact=$(printf '%s' "$SCAN_COMMAND_OUTPUT" | LC_ALL=C tr -d '[:space:]')
+    if [[ -n $compact ]]; then
+        error "scan cleanup refuses PDFs containing searchable text: $source"
+        return 1
+    fi
+
+    run_scan_command 'attachment inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$pdfdetach_command" -list "$source" || return 1
+    compact=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | \
+        sed -e '/^[[:space:]]*0 embedded files[[:space:]]*$/d' \
+            -e '/^[[:space:]]*$/d')
+    if [[ -n $compact ]]; then
+        error "scan cleanup refuses PDFs containing embedded files: $source"
+        return 1
+    fi
+
+    run_scan_command 'link inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$pdfinfo_command" -url "$source" || return 1
+    compact=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | sed '1d' | \
+        LC_ALL=C tr -d '[:space:]')
+    if [[ -n $compact ]]; then
+        error "scan cleanup refuses PDFs containing links: $source"
+        return 1
+    fi
+    run_scan_command 'destination inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$pdfinfo_command" -dests "$source" || return 1
+    compact=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | sed '1d' | \
+        LC_ALL=C tr -d '[:space:]')
+    if [[ -n $compact ]]; then
+        error "scan cleanup refuses PDFs containing named destinations: $source"
+        return 1
+    fi
+
+    run_scan_command 'image inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$pdfimages_command" -list "$source" || return 1
+    SCAN_X_DPI=()
+    SCAN_Y_DPI=()
+    while read -r -a fields; do
+        page=${fields[0]:-}
+        [[ $page =~ ^[1-9][0-9]*$ ]] || continue
+        type=${fields[2]:-}
+        x_dpi=${fields[12]:-}
+        y_dpi=${fields[13]:-}
+        image_counts[page]=$((${image_counts[page]:-0} + 1))
+        if [[ $type != image || ! $x_dpi =~ ^[1-9][0-9]*$ ||
+            ! $y_dpi =~ ^[1-9][0-9]*$ ]]; then
+            error "scan cleanup requires exactly one ordinary image per page: $source"
+            return 1
+        fi
+        SCAN_X_DPI[page]=$x_dpi
+        SCAN_Y_DPI[page]=$y_dpi
+    done <<<"$SCAN_COMMAND_OUTPUT"
+    i=1
+    while (( i <= pages )); do
+        if (( ${image_counts[$i]:-0} != 1 )); then
+            error "scan cleanup requires exactly one image on every page (page $i): $source"
+            return 1
+        fi
+        ((i += 1))
+    done
+
+    mkdir "$scan_directory/residual" || return 1
+    run_scan_command 'non-image content inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$gs_command" -q -dBATCH -dNOPAUSE -dSAFER \
+        -dFILTERIMAGE -sDEVICE=pnggray -r150 \
+        "-sOutputFile=$scan_directory/residual/page-%04d.png" -f "$source" || \
+        return 1
+    i=1
+    while (( i <= pages )); do
+        printf -v residual '%s/residual/page-%04d.png' "$scan_directory" "$i"
+        if [[ ! -s $residual ]]; then
+            error "could not inspect non-image page content (page $i): $source"
+            return 1
+        fi
+        run_scan_command 'non-image content analysis' "$source" \
+            "$timeout_command" "$timeout_duration" "$magick_command" \
+            "$residual" -format '%[fx:minima]' info: || return 1
+        minimum=$SCAN_COMMAND_OUTPUT
+        if ! awk -v value="$minimum" 'BEGIN { exit !(value >= 0.99999) }'; then
+            error "scan cleanup refuses PDFs containing visible text or vector content (page $i): $source"
+            return 1
+        fi
+        ((i += 1))
+    done
+    SCAN_PAGE_COUNT=$pages
+}
+
+clean_scan_pdf() {
+    local source=$1
+    local cleaned_pdf=$2
+    local scan_directory=$3
+    local cleanup_mode=$4
+    local timeout_command=$5
+    local timeout_duration=$6
+    local gs_command=$7
+    local magick_command=$8
+    local pdfinfo_command=$9
+    local pdfimages_command=${10}
+    local pdftotext_command=${11}
+    local pdfdetach_command=${12}
+    local pdftocairo_command=${13}
+    local levels page rendered cleaned dimensions pixel_width pixel_height
+    local output_x_dpi output_y_dpi
+    local -a assembly_args=()
+
+    case $cleanup_mode in
+        gentle) levels='8%,96%' ;;
+        standard) levels='12%,94%' ;;
+        strong) levels='16%,92%' ;;
+    esac
+    inspect_scan_pdf "$source" "$scan_directory" "$timeout_command" \
+        "$timeout_duration" "$gs_command" "$magick_command" \
+        "$pdfinfo_command" "$pdfimages_command" "$pdftotext_command" \
+        "$pdfdetach_command" || return 1
+    mkdir "$scan_directory/rendered" "$scan_directory/cleaned" || return 1
+    page=1
+    while (( page <= SCAN_PAGE_COUNT )); do
+        rendered=$scan_directory/rendered/page-$page
+        cleaned=$scan_directory/cleaned/page-$page.png
+        run_scan_command 'scan page rendering' "$source" "$timeout_command" \
+            "$timeout_duration" "$pdftocairo_command" -png -singlefile \
+            -f "$page" -l "$page" -rx "${SCAN_X_DPI[$page]}" \
+            -ry "${SCAN_Y_DPI[$page]}" "$source" "$rendered" || return 1
+        if [[ ! -s $rendered.png ]]; then
+            error "scan renderer produced no page image (page $page): $source"
+            return 1
+        fi
+        run_scan_command 'scan contrast cleanup' "$source" "$timeout_command" \
+            "$timeout_duration" "$magick_command" "$rendered.png" \
+            -colorspace Lab -channel R -level "$levels" +channel \
+            -colorspace sRGB "$cleaned" || return 1
+        if [[ ! -s $cleaned ]]; then
+            error "scan cleanup produced no page image (page $page): $source"
+            return 1
+        fi
+        run_scan_command 'cleaned page geometry inspection' "$source" \
+            "$timeout_command" "$timeout_duration" "$magick_command" \
+            "$cleaned" -format '%w %h' info: || return 1
+        dimensions=$SCAN_COMMAND_OUTPUT
+        read -r pixel_width pixel_height <<<"$dimensions"
+        if [[ ! $pixel_width =~ ^[1-9][0-9]*$ ||
+            ! $pixel_height =~ ^[1-9][0-9]*$ ]]; then
+            error "could not determine cleaned page dimensions (page $page): $source"
+            return 1
+        fi
+        output_x_dpi=$(awk -v pixels="$pixel_width" \
+            -v points="${SCAN_PAGE_WIDTH[$page]}" \
+            'BEGIN { printf "%.8f", pixels * 72 / points }')
+        output_y_dpi=$(awk -v pixels="$pixel_height" \
+            -v points="${SCAN_PAGE_HEIGHT[$page]}" \
+            'BEGIN { printf "%.8f", pixels * 72 / points }')
+        assembly_args+=(
+            -units PixelsPerInch
+            -density "${output_x_dpi}x${output_y_dpi}"
+            "$cleaned"
+        )
+        ((page += 1))
+    done
+    run_scan_command 'cleaned PDF assembly' "$source" "$timeout_command" \
+        "$timeout_duration" "$magick_command" "${assembly_args[@]}" \
+        -compress Zip "$cleaned_pdf" || return 1
+    if [[ ! -f $cleaned_pdf || -L $cleaned_pdf || ! -s $cleaned_pdf ]]; then
+        error "scan cleanup produced no valid nonempty PDF: $source"
+        return 1
+    fi
+}
+
 convert_pdf() {
     local source=$1
     local candidate=$2
@@ -723,6 +1006,9 @@ plan_actions() {
     while (( i < ${#sources[@]} )); do
         source=${sources[$i]}
         relative=${relatives[$i]}
+        if (( dry_run )) && [[ -n $clean_scan ]]; then
+            printf 'would clean scan (%s): %s\n' "$clean_scan" "$source"
+        fi
 
         if [[ $mode == output ]]; then
             destination=$output_dir/$relative
@@ -774,8 +1060,10 @@ plan_actions() {
 clear_active_files() {
     remove_candidate "${ACTIVE_CANDIDATE:-}"
     remove_candidate "${ACTIVE_METADATA_REFERENCE:-}"
+    remove_scan_directory "${ACTIVE_SCAN_DIRECTORY:-}"
     ACTIVE_CANDIDATE=''
     ACTIVE_METADATA_REFERENCE=''
+    ACTIVE_SCAN_DIRECTORY=''
     release_log_lock
 }
 
@@ -785,6 +1073,7 @@ process_source() {
     local destination=$3
     local candidate='' candidate_dir source_before source_after
     local timestamp_reference=''
+    local scan_directory='' conversion_source=$source
     local original_size candidate_size
 
     if [[ $mode == output ]]; then
@@ -833,12 +1122,34 @@ process_source() {
         clear_active_files
         return 1
     }
-    convert_pdf "$source" "$candidate" "$timeout_command" "$gs_command" \
+    if [[ -n ${clean_scan:-} ]]; then
+        scan_directory=$(mktemp -d "${TMPDIR:-/tmp}/pdf-slim-scan.XXXXXX") || {
+            error "could not create scan-cleanup temporary directory: $source"
+            clear_active_files
+            return 1
+        }
+        ACTIVE_SCAN_DIRECTORY=$scan_directory
+        conversion_source=$scan_directory/cleaned.pdf
+        clean_scan_pdf "$source" "$conversion_source" "$scan_directory" \
+            "$clean_scan" "$timeout_command" "$timeout_duration" \
+            "$gs_command" "$magick_command" "$pdfinfo_command" \
+            "$pdfimages_command" "$pdftotext_command" "$pdfdetach_command" \
+            "$pdftocairo_command" || {
+            clear_active_files
+            return 1
+        }
+    fi
+    convert_pdf "$conversion_source" "$candidate" "$timeout_command" "$gs_command" \
         "$timeout_duration" "$grayscale" "$quality" "$max_dpi" \
         "$jpeg_recompress" || {
         clear_active_files
         return 1
     }
+    remove_scan_directory "$scan_directory" || {
+        clear_active_files
+        return 1
+    }
+    ACTIVE_SCAN_DIRECTORY=''
     source_after=$(file_identity "$source") || source_after='missing'
     if [[ $source_before != "$source_after" ]]; then
         error "source changed during conversion; leaving it untouched: $source"
@@ -930,6 +1241,7 @@ main() {
     local quality='preserve'
     local max_dpi=''
     local jpeg_recompress=''
+    local clean_scan=''
     local metadata_mode='standard'
     local dry_run=0
     local grayscale=0
@@ -950,10 +1262,13 @@ main() {
     local -a destinations=()
     local output_root_key=''
     local log_file script_path
-    local timeout_command gs_command
+    local timeout_command gs_command magick_command pdfinfo_command
+    local pdfimages_command pdftotext_command pdfdetach_command
+    local pdftocairo_command
     local failures=0 i
     ACTIVE_CANDIDATE=''
     ACTIVE_METADATA_REFERENCE=''
+    ACTIVE_SCAN_DIRECTORY=''
     ACTIVE_LOG_LOCK=''
 
     if (( $# == 0 )); then
@@ -1071,6 +1386,15 @@ main() {
                 detailed_quality=1
                 ;;
             --grayscale) grayscale=1 ;;
+            --clean-scan)
+                if (( $# == 0 )); then
+                    error '--clean-scan requires a mode argument'
+                    parse_failed=1
+                    break
+                fi
+                clean_scan=$1
+                shift
+                ;;
             --preserve-metadata)
                 if (( $# == 0 )); then
                     error '--preserve-metadata requires a mode argument'
@@ -1175,6 +1499,17 @@ main() {
             return 2
             ;;
     esac
+    case $clean_scan in
+        ''|gentle|standard|strong) ;;
+        *)
+            error "unsupported scan cleanup mode: $clean_scan"
+            return 2
+            ;;
+    esac
+    if [[ -n $clean_scan && $quality_explicit -eq 0 ]]; then
+        quality='detailed'
+        [[ -n $jpeg_recompress ]] || jpeg_recompress='0.10'
+    fi
     case $metadata_mode in
         none|basic|standard|all) ;;
         *)
@@ -1271,6 +1606,32 @@ main() {
         error 'Ghostscript is required (gs was not found)'
         return 1
     }
+    if [[ -n $clean_scan ]]; then
+        magick_command=$(find_command magick) || {
+            error 'ImageMagick is required for --clean-scan (magick was not found)'
+            return 1
+        }
+        pdfinfo_command=$(find_command pdfinfo) || {
+            error 'Poppler is required for --clean-scan (pdfinfo was not found)'
+            return 1
+        }
+        pdfimages_command=$(find_command pdfimages) || {
+            error 'Poppler is required for --clean-scan (pdfimages was not found)'
+            return 1
+        }
+        pdftotext_command=$(find_command pdftotext) || {
+            error 'Poppler is required for --clean-scan (pdftotext was not found)'
+            return 1
+        }
+        pdfdetach_command=$(find_command pdfdetach) || {
+            error 'Poppler is required for --clean-scan (pdfdetach was not found)'
+            return 1
+        }
+        pdftocairo_command=$(find_command pdftocairo) || {
+            error 'Poppler is required for --clean-scan (pdftocairo was not found)'
+            return 1
+        }
+    fi
     trap cleanup_active_candidate EXIT
     trap 'exit 129' HUP
     trap 'exit 130' INT

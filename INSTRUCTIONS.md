@@ -59,7 +59,8 @@ tests/                         Automated test suite and Ghostscript double
 
 The active script implements safe traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
-metadata preservation, and versioned null-delimited replacement logging.
+metadata preservation, versioned null-delimited replacement logging, and
+guarded image-only scan cleanup.
 
 ## Preserved legacy baseline
 
@@ -90,7 +91,9 @@ GNU gtimeout:       /usr/local/bin/gtimeout
 realpath:           /bin/realpath
 grealpath:          /usr/local/bin/grealpath
 greadlink:          /usr/local/bin/greadlink
-shellcheck:         not installed
+ImageMagick:        /usr/local/bin/magick
+Poppler:            pdfinfo, pdfimages, pdftotext, pdfdetach, pdftocairo
+shellcheck:         installed
 ```
 
 Do not install dependencies without user approval. Recheck these commands in
@@ -131,6 +134,12 @@ The user has approved these decisions:
     literal path when its filename contains glob metacharacters, reject
     no-match patterns, and reject accidental unquoted multi-match expansion
     before conversion or writes with a quoting hint.
+13. Allow `--clean-scan gentle|standard|strong` for safely detected image-only
+    scans. Preserve page dimensions, source resolution, and color by default.
+    With no quality arguments, re-encode changed pixels at `QFactor 0.10`;
+    explicit quality controls override cleanup defaults, and `--grayscale`
+    remains independent. Refuse inputs whose detectable non-image content would
+    be lost by flattening.
 
 Planned options:
 
@@ -150,6 +159,8 @@ Planned options:
 - `--jpeg-recompress Q` — detailed JPEG encoding with Ghostscript QFactor
   `0.0` through `1.0`.
 - `--grayscale` — explicit and independent of quality mode.
+- `--clean-scan MODE` — explicit gentle, standard, or strong image-only scan
+  contrast cleanup.
 - `--help` — document usage, defaults, behavior, and statuses.
 - `--version` — add once useful; a development version is acceptable early.
 
@@ -316,6 +327,7 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-Version `1.0.0` is feature-complete for the agreed scope. Run `tests/run.sh` and
-`bash -n pdf-slim.sh` before future releases, preserve the legacy files and
-archived log, and keep subsequent changes small and reviewable.
+Version `1.1.0` adds guarded image-only scan cleanup to the previously completed
+scope. Run `tests/run.sh`, `bash -n pdf-slim.sh`, and ShellCheck before future
+releases, preserve the legacy files and archived log, and keep subsequent
+changes small and reviewable.

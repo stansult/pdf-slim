@@ -10,7 +10,8 @@ for test_script in \
     test-publication.sh \
     test-logging.sh \
     test-cli.sh \
-    test-real-gs.sh
+    test-real-gs.sh \
+    test-scan-cleanup.sh
 do
     "$test_dir/$test_script"
 done

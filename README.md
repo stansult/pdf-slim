@@ -1,11 +1,11 @@
 # pdf-slim
 
-`pdf-slim` is a safe, configurable Bash command for reducing PDF file
-sizes with Ghostscript. Its default policy preserves the visible appearance
-of the source; grayscale and lossy compression will always require explicit
-options.
+`pdf-slim` is a safe, configurable Bash command for reducing PDF file sizes
+with Ghostscript and improving image-only scans with optional ImageMagick and
+Poppler processing. Its default policy preserves the visible appearance of the
+source; scan cleanup, grayscale, and lossy compression are explicit.
 
-Current stable version: `1.0.0`.
+Current stable version: `1.1.0`.
 
 ## Current capabilities
 
@@ -25,6 +25,8 @@ Current stable version: `1.0.0`.
   `--dry-run`.
 - Records successful replacement outcomes and skips only unchanged files with
   matching canonical path, size, and modification time.
+- Offers gentle, standard, and strong contrast cleanup for safely detected
+  image-only scans while retaining their page size, resolution, and color.
 
 ## Usage
 
@@ -64,6 +66,12 @@ Quality -- choose one approach:
                          quality approach
 
 Do not combine --quality with --max-dpi or --jpeg-recompress.
+
+Scan cleanup:
+  --clean-scan MODE      Improve an image-only scan using gentle, standard, or
+                         strong contrast cleanup while retaining color
+                         (default with no quality options: source DPI and JPEG
+                         QFactor 0.10; --grayscale remains independent)
 ```
 
 Current options:
@@ -79,6 +87,10 @@ Current options:
   -h, --help          Show this help and exit
   --version           Show the version and exit
 ```
+
+Scan cleanup requires ImageMagick and Poppler. It safely refuses PDFs with
+detectable text, forms, attachments, links, vector content, or other layouts
+that cannot be flattened as image-only scans without losing content.
 
 ## Use cases
 
@@ -190,6 +202,43 @@ Explicitly create a grayscale PDF:
 ./pdf-slim.sh --input color-brochure.pdf --output-dir ./grayscale --grayscale
 ```
 
+Clean an image-only scan while preserving its page size, source DPI, and color.
+With no quality options, cleanup uses the high-quality JPEG default
+`QFactor 0.10` because changed pixels cannot reuse the original JPEG encoding:
+
+```bash
+pdf-slim.sh --input employment-form-scan.pdf \
+  --output employment-form-cleaned.pdf --clean-scan standard
+```
+
+Compare all three cleanup strengths:
+
+```bash
+for mode in gentle standard strong; do
+  pdf-slim.sh --input employment-form-scan.pdf \
+    --output "employment-form-$mode.pdf" --clean-scan "$mode"
+done
+```
+
+Cleanup remains independent of grayscale and the two quality-selection
+approaches. For example, clean, convert to grayscale, cap resolution, and select
+an explicit JPEG encoding:
+
+```bash
+pdf-slim.sh --input archived-form-scan.pdf \
+  --output archived-form-cleaned.pdf --clean-scan standard --grayscale \
+  --max-dpi 200 --jpeg-recompress 0.15
+```
+
+Explicit `--quality preserve` requests lossless encoding after cleanup. It does
+not downsample, but its output can be considerably larger than the practical
+default above:
+
+```bash
+pdf-slim.sh --input archival-scan.pdf --output archival-cleaned-lossless.pdf \
+  --clean-scan gentle --quality preserve
+```
+
 Set a shorter per-file conversion limit for a batch:
 
 ```bash
@@ -212,6 +261,19 @@ Exit statuses are `0` for success, `1` when one or more conversions fail, and
 is strictly smaller. It never removes the original first. Exact-file and
 output-directory modes never silently overwrite a destination or publish a
 partial conversion.
+
+Scan cleanup intentionally rebuilds pixels, so it first verifies that every
+page is an image-only scan. It refuses encrypted PDFs and detectable searchable
+text, forms, JavaScript, attachments, links, named destinations, visible vector
+content, or pages that do not contain exactly one ordinary image. A rejected
+file is left untouched; other files in a batch continue, and the command exits
+with status `1`. Cleanup temporary files are removed on success, failure,
+timeout, or interruption.
+
+`--dry-run` reports the intended cleanup but defers content inspection until a
+real run so it can remain write-free and avoid Ghostscript. In `--replace` mode,
+the existing strictly-smaller rule still applies: if the cleaned PDF is not
+smaller, the original is retained and the candidate is discarded.
 
 Metadata preservation is strict: if the selected metadata cannot be preserved,
 the candidate is discarded and the original remains untouched. `standard`
@@ -269,6 +331,12 @@ pdf-slim.sh: error: choose one quality approach: use --quality MODE or detailed 
 JPEG recompression and downsampling are lossy and do not guarantee a smaller
 result.
 
+`--clean-scan` is also independent of the quality approach. With no quality
+arguments, it retains source page dimensions and resolution and uses
+`QFactor 0.10`. An explicit named preset uses that preset instead. Detailed
+values override the corresponding cleanup defaults; supplying only `--max-dpi`
+keeps the cleanup default `QFactor 0.10`.
+
 Recompress without changing color/grayscale resolution:
 
 ```bash
@@ -301,8 +369,11 @@ done
 ## Requirements
 
 The command uses Bash, Ghostscript, GNU `timeout` (available as `timeout` or
-`gtimeout`), `find`, and `realpath`. It is tested with macOS Bash 3.2 and newer
-Bash versions. The `all` metadata mode additionally uses macOS `xattr`.
+`gtimeout`), `find`, and `realpath`. Scan cleanup additionally requires
+ImageMagick (`magick`) and Poppler (`pdfinfo`, `pdfimages`, `pdftotext`,
+`pdfdetach`, and `pdftocairo`). These extra commands are checked only when
+`--clean-scan` is requested. It is tested with macOS Bash 3.2 and newer Bash
+versions. The `all` metadata mode additionally uses macOS `xattr`.
 
 ## Installation
 
@@ -329,7 +400,9 @@ Run the complete automated suite with:
 The suite uses disposable files and a Ghostscript command double to cover CLI
 validation and traversal, conversion failures and timeouts, atomic publication,
 metadata preservation, interruption cleanup, and replacement logging. It runs
-on macOS Bash 3.2 and newer Bash versions.
+on macOS Bash 3.2 and newer Bash versions. Scan-cleanup tests exercise all three
+strengths, multi-page and grayscale processing, page-size preservation, and
+safe refusal of non-scan PDFs.
 
 ## Project layout
 
@@ -351,6 +424,7 @@ safety checks.
 
 ## Release status
 
-Version `1.0.0` implements the agreed interface, safety model, metadata modes,
-quality policies, replacement logging, and automated test coverage. Future
-changes should remain backward-compatible or be released as a new major version.
+Version `1.1.0` adds guarded gentle, standard, and strong image-only scan
+cleanup to the existing interface, safety model, metadata modes, quality
+policies, replacement logging, and automated test coverage. Future changes
+should remain backward-compatible or be released as a new major version.
