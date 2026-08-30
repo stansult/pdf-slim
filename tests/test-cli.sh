@@ -44,6 +44,12 @@ fi
 grep -q -- '--input \. --output-dir slimmed' "$test_dir/no-args.err"
 grep -q -- '--input \. --replace' "$test_dir/no-args.err"
 grep -q -- '--help' "$test_dir/no-args.err"
+awk 'NR == 1 { next } NR == 2 { exit !($0 == "") }' \
+    "$test_dir/no-args.err"
+awk '/For a scanned image:/ { seen = 1; next }
+    seen && /^Run .*--help/ { exit !previous_blank }
+    { previous_blank = ($0 == "") }
+    END { if (!seen) exit 1 }' "$test_dir/no-args.err"
 
 printf '%100s\n' '%PDF-1.7 one' >"$test_dir/input/one.pdf"
 printf '%100s\n' '%PDF-1.7 uppercase' >"$test_dir/input/UPPER.PDF"

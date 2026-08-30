@@ -87,6 +87,7 @@ For a single PDF:
   $PROGRAM --input original.pdf -o compressed.pdf
 For a scanned image:
   $PROGRAM --input scan.jpg -o scan-cleaned.pdf --clean-scan standard
+
 Run '$PROGRAM --help' for full usage.
 EOF
 }
@@ -1416,6 +1417,7 @@ main() {
 
     if (( $# == 0 )); then
         error 'an output mode and at least one input are required'
+        printf '\n' >&2
         usage_hint
         return 2
     fi

@@ -34,6 +34,16 @@ if "$cli" >"$test_dir/no-input.out" 2>"$test_dir/no-input.err"; then
     exit 1
 fi
 grep -q -- '--input is required' "$test_dir/no-input.err"
+grep -q -- '--input scan.png -o scan-cleaned.jpg' "$test_dir/no-input.err"
+grep -q -- '--input scan.jpg --all-modes' "$test_dir/no-input.err"
+grep -q -- '--input \. --output-dir cleaned' "$test_dir/no-input.err"
+grep -q -- '--help' "$test_dir/no-input.err"
+awk 'NR == 1 { next } NR == 2 { exit !($0 == "") }' \
+    "$test_dir/no-input.err"
+awk '/For the current directory:/ { seen = 1; next }
+    seen && /^Run .*--help/ { exit !previous_blank }
+    { previous_blank = ($0 == "") }
+    END { if (!seen) exit 1 }' "$test_dir/no-input.err"
 
 "$real_magick" -size 80x60 -units PixelsPerInch -density 300 xc:'#e4d4bd' \
     -fill '#352b28' -draw 'rectangle 15,15 65,45' \

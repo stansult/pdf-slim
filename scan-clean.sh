@@ -61,6 +61,20 @@ Exit status: 0 success, 1 cleanup failure, 2 invalid or unsafe request.
 EOF
 }
 
+usage_hint() {
+    cat >&2 <<EOF
+Choose how to write cleaned images:
+For one image:
+  $PROGRAM --input scan.png -o scan-cleaned.jpg
+To compare all cleanup modes:
+  $PROGRAM --input scan.jpg --all-modes
+For the current directory:
+  $PROGRAM --input . --output-dir cleaned
+
+Run '$PROGRAM --help' for full usage.
+EOF
+}
+
 error() {
     printf '%s: error: %s\n' "$PROGRAM" "$*" >&2
 }
@@ -650,6 +664,13 @@ main() {
     local -a standard_destinations=()
     local -a strong_destinations=()
     ACTIVE_TEMP_DIRECTORIES=()
+
+    if (( $# == 0 )); then
+        error '--input is required'
+        printf '\n' >&2
+        usage_hint
+        return 2
+    fi
 
     while (( $# )); do
         arg=$1
