@@ -11,7 +11,8 @@ for test_script in \
     test-logging.sh \
     test-cli.sh \
     test-real-gs.sh \
-    test-scan-cleanup.sh
+    test-scan-cleanup.sh \
+    test-scan-clean-command.sh
 do
     "$test_dir/$test_script"
 done

@@ -1,11 +1,12 @@
 # pdf-slim
 
-`pdf-slim` is a safe, configurable Bash command for reducing PDF file sizes
-with Ghostscript and improving image-only scans with optional ImageMagick and
-Poppler processing. Its default policy preserves the visible appearance of the
-source; scan cleanup, grayscale, and lossy compression are explicit.
+`pdf-slim` provides two safe, configurable Bash commands: `pdf-slim.sh` reduces
+PDF file sizes with Ghostscript, while `scan-clean.sh` improves photographed or
+scanned document images with ImageMagick. PDF scan cleanup remains available
+through `pdf-slim.sh`; the standalone command applies the same cleanup concept
+directly to raster images.
 
-Current stable version: `1.1.0`.
+Current versions: `pdf-slim.sh` 1.1.0 and `scan-clean.sh` 1.0.0.
 
 ## Current capabilities
 
@@ -27,6 +28,8 @@ Current stable version: `1.1.0`.
   matching canonical path, size, and modification time.
 - Offers gentle, standard, and strong contrast cleanup for safely detected
   image-only scans while retaining their page size, resolution, and color.
+- Cleans JPEG, PNG, TIFF, and other single-frame raster images directly with
+  `scan-clean.sh`, including nonrecursive directory and quoted-glob batches.
 
 ## Usage
 
@@ -255,6 +258,88 @@ option values:
 Exit statuses are `0` for success, `1` when one or more conversions fail, and
 `2` for invalid or unsafe requests.
 
+## Standalone image cleanup
+
+Use `scan-clean.sh` when the input is an image rather than a PDF:
+
+```text
+scan-clean.sh -i PATH [output options] [cleanup options]
+```
+
+`--input` accepts exactly one image, quoted basic glob, or nonrecursive
+directory. With one selected image and no output option, the default `standard`
+mode creates `NAME-standard.EXT` beside the source:
+
+```bash
+scan-clean.sh --input phone-photo.jpg
+```
+
+Choose a cleanup strength explicitly and an exact output filename:
+
+```bash
+scan-clean.sh --input phone-photo.jpg --mode gentle \
+  --output phone-photo-cleaned.jpg
+```
+
+Generate all three strengths for visual comparison:
+
+```bash
+scan-clean.sh --input phone-photo.jpg --all-modes
+```
+
+This creates `phone-photo-gentle.jpg`, `phone-photo-standard.jpg`, and
+`phone-photo-strong.jpg`. If any name is unavailable, all three use the same
+next group index—for example `phone-photo-2-gentle.jpg` through
+`phone-photo-2-strong.jpg`—so the variants stay together when sorted.
+
+The exact output extension selects the output format, including PNG-to-JPEG:
+
+```bash
+scan-clean.sh --input form-scan.png --output form-scan-cleaned.jpg \
+  --jpeg-quality 95 --background white
+```
+
+Alpha is preserved when the output format supports transparency. JPEG cannot,
+so transparent pixels are flattened onto `--background` (`white` by default).
+
+Clean all supported images immediately inside a directory, without descending
+into subdirectories:
+
+```bash
+scan-clean.sh --input ./incoming-scans --output-dir ./cleaned
+```
+
+Or use one quoted glob:
+
+```bash
+scan-clean.sh --input './incoming-scans/*.jpg' --output-dir ./cleaned
+```
+
+Multiple selected images require `--output-dir`. The exact directory supplied,
+including missing parent directories, is created; no extra nesting is added.
+Broad directory and glob selections skip non-images with warnings. Explicit
+unsupported inputs fail. Symlinks, vector/document formats, animations, and
+multi-frame images are never processed.
+
+Existing outputs receive an automatic numeric index unless overwrite is
+explicitly requested:
+
+```bash
+scan-clean.sh --input phone-photo.jpg --overwrite
+```
+
+`-O` is the short form of `--overwrite`; replacement is atomic. Preview planned
+names without writing outputs:
+
+```bash
+scan-clean.sh --input phone-photo.jpg --all-modes --dry-run
+```
+
+Image metadata is preserved when the output format supports it, including ICC,
+EXIF, capture date, GPS, and resolution. Orientation is applied to the pixels
+and normalized. Use `--strip-metadata` to remove metadata instead. The default
+JPEG output quality is 95 and the per-image command timeout is 1 hour.
+
 ## Safety model
 
 `--replace` replaces an original only after a successful, validated conversion
@@ -368,12 +453,13 @@ done
 
 ## Requirements
 
-The command uses Bash, Ghostscript, GNU `timeout` (available as `timeout` or
-`gtimeout`), `find`, and `realpath`. Scan cleanup additionally requires
-ImageMagick (`magick`) and Poppler (`pdfinfo`, `pdfimages`, `pdftotext`,
-`pdfdetach`, and `pdftocairo`). These extra commands are checked only when
-`--clean-scan` is requested. It is tested with macOS Bash 3.2 and newer Bash
-versions. The `all` metadata mode additionally uses macOS `xattr`.
+Both commands use Bash, GNU `timeout` (available as `timeout` or `gtimeout`),
+`find`, and `realpath`. `scan-clean.sh` requires ImageMagick (`magick`).
+`pdf-slim.sh` requires Ghostscript; its `--clean-scan` feature additionally
+requires ImageMagick and Poppler (`pdfinfo`, `pdfimages`, `pdftotext`,
+`pdfdetach`, and `pdftocairo`). Optional commands are checked only when their
+features are requested. The scripts are tested with macOS Bash 3.2 and newer
+Bash versions. The `all` PDF metadata mode additionally uses macOS `xattr`.
 
 ## Installation
 
@@ -381,9 +467,10 @@ Make the script executable and add its directory to `PATH`, or invoke it by its
 path:
 
 ```bash
-chmod +x pdf-slim.sh
+chmod +x pdf-slim.sh scan-clean.sh
 export PATH="/path/to/pdf-slim:$PATH"
 pdf-slim.sh --version
+scan-clean.sh --version
 ```
 
 For a persistent installation, add the `export PATH=...` line to the profile
@@ -397,17 +484,18 @@ Run the complete automated suite with:
 ./tests/run.sh
 ```
 
-The suite uses disposable files and a Ghostscript command double to cover CLI
-validation and traversal, conversion failures and timeouts, atomic publication,
-metadata preservation, interruption cleanup, and replacement logging. It runs
-on macOS Bash 3.2 and newer Bash versions. Scan-cleanup tests exercise all three
-strengths, multi-page and grayscale processing, page-size preservation, and
-safe refusal of non-scan PDFs.
+The suite uses disposable files plus Ghostscript and ImageMagick command doubles
+to cover CLI validation and traversal, conversion failures and timeouts, atomic
+publication, metadata preservation, interruption cleanup, and replacement
+logging. It runs on macOS Bash 3.2 and newer Bash versions. Cleanup tests cover
+all three strengths, PDF page-size preservation, standalone batch filtering,
+automatic naming, transparency, metadata behavior, and safe input refusal.
 
 ## Project layout
 
 ```text
 pdf-slim.sh                 Active command
+scan-clean.sh               Standalone raster-image cleanup command
 legacy/pdf_low.sh           Preserved original output-directory script
 legacy/pdf_low_replace.sh   Preserved original replacement script
 INSTRUCTIONS.md             Development handoff and implementation plan
@@ -424,7 +512,9 @@ safety checks.
 
 ## Release status
 
-Version `1.1.0` adds guarded gentle, standard, and strong image-only scan
-cleanup to the existing interface, safety model, metadata modes, quality
-policies, replacement logging, and automated test coverage. Future changes
-should remain backward-compatible or be released as a new major version.
+`pdf-slim.sh` version 1.1.0 adds guarded gentle, standard, and strong image-only
+PDF scan cleanup. `scan-clean.sh` version 1.0.0 applies adaptive cleanup directly
+to single-frame raster images with safe standalone and batch publication.
+Integration that makes `pdf-slim.sh` call the standalone engine is planned as a
+separate change. Future changes should remain backward-compatible or be
+released as a new major version.

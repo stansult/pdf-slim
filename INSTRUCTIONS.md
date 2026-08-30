@@ -36,9 +36,11 @@ Repository page:
 https://github.com/stansult/pdf-slim
 ```
 
-The current branch is `master`, tracking `origin/master`. At the last verified
-state, the working tree was clean and synchronized with the remote except for
-the ignored runtime log.
+The current branch is `master`, tracking `origin/master`. At the start of the
+standalone scan-clean phase, the working tree was clean and synchronized with
+the remote except for the ignored runtime log. The current working tree contains
+the uncommitted `scan-clean.sh` implementation, its tests, and corresponding
+README/handoff updates.
 
 The implementation was developed through small logical commits. Do not rewrite
 this history.
@@ -47,6 +49,7 @@ this history.
 
 ```text
 pdf-slim.sh                    Active functional consolidated script
+scan-clean.sh                  Standalone raster-image scan cleanup command
 legacy/pdf_low.sh              Usable legacy conversion script
 legacy/pdf_low_replace.sh      Preserved legacy replacement script
 legacy/processed_pdfs.log      Ignored archived legacy runtime history
@@ -54,13 +57,59 @@ processed_pdfs.log             Ignored active replacement log (created on demand
 README.md                      Short project/layout description
 INSTRUCTIONS.md                This handoff
 .gitignore                     Runtime/temp exclusions
-tests/                         Automated test suite and Ghostscript double
+tests/                         Automated suite and command doubles
 ```
 
-The active script implements safe traversal, dry-run planning, reliable
+The active PDF script implements safe traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, versioned null-delimited replacement logging, and
 guarded image-only scan cleanup.
+
+The standalone `scan-clean.sh` command implements adaptive gentle, standard,
+and strong cleanup for single-frame raster images. It accepts one image, quoted
+glob, or nonrecursive directory; supports exact, automatic, and output-directory
+publication; preserves image metadata and transparency where supported; and
+provides atomic overwrite only through explicit `-O` / `--overwrite`.
+
+## Standalone image-cleanup decisions
+
+The user explicitly approved these choices for `scan-clean.sh`:
+
+1. Accept exactly one `-i PATH` / `--input PATH`; it may select one raster
+   image, one quoted basic glob, or one nonrecursive directory. Do not support
+   repeatable inputs or recursive traversal.
+2. Default to `standard` cleanup when no mode is supplied. Accept
+   `--mode gentle|standard|strong` and the explicit comparison option
+   `--all-modes`.
+3. Support `-o FILE` / `--output FILE` for exactly one selected image and
+   `--output-dir DIR` for batches. Do not support in-place replacement.
+4. When no output is named for one image, create `NAME-MODE.EXT` beside the
+   source. On collision, put a shared numeric group before the mode, such as
+   `NAME-2-GENTLE.EXT` through `NAME-2-STRONG.EXT`.
+5. Use `-O` / `--overwrite` for explicit atomic overwriting. Without it,
+   preserve existing outputs and select the next automatic group index.
+6. Let an exact output extension select the raster output format. Preserve the
+   source format/extension for automatic and output-directory naming.
+7. Preserve supported image metadata by default; offer `--strip-metadata`.
+   Auto-orient pixels and normalize the orientation tag.
+8. Preserve transparency in formats that support it. For JPEG, flatten onto
+   white by default and allow `--background COLOR`.
+9. Use JPEG quality 95 by default and expose `--jpeg-quality 1-100`.
+10. Create exactly the requested output-directory path, including missing
+    parents, while refusing symlink or non-directory components. Add no extra
+    nesting.
+11. Broad directory/glob discovery filters by actual readable raster content,
+    warns and skips non-images, and refuses symlinks, vector/document formats,
+    animations, and multi-frame inputs. An explicitly named invalid input is an
+    error.
+12. Keep the timeout default in an easy-to-find `DEFAULT_TIMEOUT` constant,
+    expose `--timeout`, support `--dry-run`, preflight the batch, publish each
+    output atomically, continue after per-image failures, and return status 1 if
+    any conversion fails.
+
+The first production phase is standalone only. Moving the PDF cleanup engine
+behind `scan-clean.sh` is deliberately deferred to a separate integration
+change so existing `pdf-slim.sh` behavior remains unchanged during this phase.
 
 ## Preserved legacy baseline
 
@@ -327,7 +376,9 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-Version `1.1.0` adds guarded image-only scan cleanup to the previously completed
-scope. Run `tests/run.sh`, `bash -n pdf-slim.sh`, and ShellCheck before future
-releases, preserve the legacy files and archived log, and keep subsequent
-changes small and reviewable.
+Finish and review standalone `scan-clean.sh` version 1.0.0, then commit it as one
+logical change. Integrating `pdf-slim.sh` with this engine is a separate future
+phase; do not duplicate or move the PDF workflow until that phase is explicitly
+approved. Run `tests/run.sh`, Bash syntax checks, and ShellCheck before releases,
+preserve the legacy files and archived log, and keep changes small and
+reviewable.
