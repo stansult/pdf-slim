@@ -13,6 +13,8 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
 
 ## Current capabilities
 
+### `pdf-slim.sh`
+
 - Accepts multiple PDF files, raster images with `--clean-scan`, and directories
   through repeatable `--input`.
 - Expands quoted input glob patterns while rejecting accidental unquoted
@@ -37,8 +39,19 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
   image and PDF cleanup use the same adaptive behavior.
 - Accepts a raster scan directly and creates a cleaned PDF in one command when
   `--clean-scan` is selected.
-- Cleans JPEG, PNG, TIFF, and other single-frame raster images directly with
-  `scan-clean.sh`, including nonrecursive directory and quoted-glob batches.
+
+### `scan-clean.sh`
+
+- Cleans JPEG, PNG, TIFF, and other single-frame raster images directly.
+- Offers gentle, standard, and strong cleanup plus `--all-modes` for comparison.
+- Supports exact output filenames, automatic collision-safe naming, and
+  nonrecursive directory or quoted-glob batches.
+- Converts between raster formats based on the output extension, such as PNG to
+  JPEG.
+- Preserves supported metadata and transparency, with explicit options to strip
+  metadata or choose the background used when flattening to JPEG.
+- Publishes outputs atomically and refuses symlinks, vector documents,
+  animations, and multi-frame images.
 
 ## Usage
 
