@@ -14,6 +14,10 @@ DEFAULT_BACKGROUND='white'
 
 usage() {
     cat <<EOF
+scan-clean.sh improves photographed and scanned document images by correcting
+color casts and adjusting paper and text contrast.
+For PDF output, use pdf-slim.sh.
+
 Usage: $PROGRAM [options]
 
 Input:
@@ -40,16 +44,20 @@ Other options:
   -h, --help             Show this help and exit
   --version              Show the version and exit
 
-With one selected image and no output option, output is created beside the
-input as NAME-MODE.EXT. Existing automatic names receive a shared numeric index,
-for example NAME-2-GENTLE.EXT through NAME-2-STRONG.EXT. Batch input requires
---output-dir; that directory and missing parents are created safely. An exact
-output filename selects its image format, so PNG-to-JPEG conversion is allowed.
-PNG and other alpha-capable outputs retain transparency; JPEG flattens it onto
---background. Symlinks, vector documents, animations, and multi-frame images are
-not processed. Broad directory and glob inputs warn about and skip non-images.
+Examples:
+  $PROGRAM -i scan.png -o scan-cleaned.jpg
+  $PROGRAM -i scan.jpg --all-modes
+  $PROGRAM -i scans --output-dir cleaned
 
-Exit status: 0 success, 1 one or more images failed, 2 invalid/unsafe request.
+Important:
+  The default cleanup mode is standard. Directory processing is nonrecursive.
+  Symlinks, vector documents, animations, and multi-frame images are skipped
+  or refused.
+
+Full documentation:
+  https://github.com/stansult/pdf-slim
+
+Exit status: 0 success, 1 cleanup failure, 2 invalid or unsafe request.
 EOF
 }
 

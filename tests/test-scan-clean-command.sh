@@ -22,6 +22,11 @@ grep -q -- '-i, --input PATH' "$test_dir/help-long.out"
 grep -q -- '-O, --overwrite' "$test_dir/help-long.out"
 grep -q -- '--all-modes' "$test_dir/help-long.out"
 grep -q -- 'standard (default)' "$test_dir/help-long.out"
+grep -q -- 'improves photographed and scanned document images' \
+    "$test_dir/help-long.out"
+grep -q -- 'For PDF output, use pdf-slim.sh.' "$test_dir/help-long.out"
+grep -q -- '-i scan.png -o scan-cleaned.jpg' "$test_dir/help-long.out"
+grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
 [[ $("$cli" --version) == 'scan-clean.sh 1.0.0' ]]
 
 if "$cli" >"$test_dir/no-input.out" 2>"$test_dir/no-input.err"; then

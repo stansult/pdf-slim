@@ -12,6 +12,8 @@ for test_script in \
     test-cli.sh \
     test-real-gs.sh \
     test-scan-cleanup.sh \
+    test-scan-clean-delegation.sh \
+    test-image-to-pdf.sh \
     test-scan-clean-command.sh
 do
     "$test_dir/$test_script"

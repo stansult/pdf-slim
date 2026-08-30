@@ -29,6 +29,12 @@ grep -q -- '--jpeg-recompress Q' "$test_dir/help-long.out"
 grep -q -- 'Do not combine --quality' "$test_dir/help-long.out"
 grep -q -- '--clean-scan MODE' "$test_dir/help-long.out"
 grep -q -- 'gentle, standard, or' "$test_dir/help-long.out"
+grep -q -- 'safely reduces PDF file sizes' "$test_dir/help-long.out"
+grep -q -- 'For image output, use scan-clean.sh.' "$test_dir/help-long.out"
+grep -q -- '-i scan.jpg -o scan-cleaned.pdf --clean-scan standard' \
+    "$test_dir/help-long.out"
+grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.2.0' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2

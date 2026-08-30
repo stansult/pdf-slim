@@ -6,11 +6,15 @@ scanned document images with ImageMagick. PDF scan cleanup remains available
 through `pdf-slim.sh`; the standalone command applies the same cleanup concept
 directly to raster images.
 
-Current versions: `pdf-slim.sh` 1.1.0 and `scan-clean.sh` 1.0.0.
+Use `pdf-slim.sh` when the output should be a PDF. Use `scan-clean.sh` when the
+output should remain an image.
+
+Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
 
 ## Current capabilities
 
-- Accepts multiple PDF files and directories through repeatable `--input`.
+- Accepts multiple PDF files, raster images with `--clean-scan`, and directories
+  through repeatable `--input`.
 - Expands quoted input glob patterns while rejecting accidental unquoted
   multi-match expansion.
 - Matches `.pdf` extensions case-insensitively.
@@ -19,7 +23,8 @@ Current versions: `pdf-slim.sh` 1.1.0 and `scan-clean.sh` 1.0.0.
 - Skips symlinks with a warning and never follows them.
 - Requires an explicit output mode: `--output FILE`, `--output-dir DIR`, or
   `--replace`.
-- Supports a one-off exact output filename for a single input PDF.
+- Supports a one-off exact PDF output filename for a single PDF or raster-image
+  input.
 - Preserves paths relative to each supplied directory in output mode.
 - Refuses existing output files and collisions between supplied roots.
 - Plans operations without running Ghostscript or writing output when using
@@ -28,6 +33,10 @@ Current versions: `pdf-slim.sh` 1.1.0 and `scan-clean.sh` 1.0.0.
   matching canonical path, size, and modification time.
 - Offers gentle, standard, and strong contrast cleanup for safely detected
   image-only scans while retaining their page size, resolution, and color.
+- Delegates PDF page pixel cleanup to the companion `scan-clean.sh` engine so
+  image and PDF cleanup use the same adaptive behavior.
+- Accepts a raster scan directly and creates a cleaned PDF in one command when
+  `--clean-scan` is selected.
 - Cleans JPEG, PNG, TIFF, and other single-frame raster images directly with
   `scan-clean.sh`, including nonrecursive directory and quoted-glob batches.
 
@@ -37,17 +46,18 @@ Current versions: `pdf-slim.sh` 1.1.0 and `scan-clean.sh` 1.0.0.
 pdf-slim.sh [options]
 ```
 
-Input paths are explicit and repeatable:
+Input paths are explicit and repeatable. Raster images are accepted when
+`--clean-scan` is selected:
 
 ```text
--i, --input PATH    Input PDF, directory, or quoted glob pattern;
-                    repeat for multiple inputs
+-i, --input PATH    Input PDF, raster image with --clean-scan, directory,
+                    or quoted glob pattern; repeat for multiple inputs
 ```
 
 Exactly one output mode is required:
 
 ```text
--o, --output FILE   Write one input PDF to exactly FILE
+-o, --output FILE   Write one input as PDF to exactly FILE
 --output-dir DIR    Preserve input-relative paths beneath DIR
 --replace           Replace originals only when safe conversion is smaller
 ```
@@ -91,9 +101,11 @@ Current options:
   --version           Show the version and exit
 ```
 
-Scan cleanup requires ImageMagick and Poppler. It safely refuses PDFs with
-detectable text, forms, attachments, links, vector content, or other layouts
-that cannot be flattened as image-only scans without losing content.
+PDF scan cleanup uses the executable `scan-clean.sh` beside `pdf-slim.sh`, or
+falls back to one available through `PATH`. It also requires ImageMagick and
+Poppler. It safely refuses PDFs with detectable text, forms, attachments,
+links, vector content, or other layouts that cannot be flattened as image-only
+scans without losing content.
 
 ## Use cases
 
@@ -116,9 +128,11 @@ Convert one PDF to an exact output filename:
 pdf-slim.sh --input annual-report.pdf --output annual-report-slim.pdf
 ```
 
-The exact output mode accepts one regular PDF file. Its parent directory must
-already exist. It refuses directory inputs, multiple inputs, recursive
-traversal, symlink destinations, and existing destinations.
+The exact output mode accepts one regular PDF, or one raster image when
+`--clean-scan` is selected. Raster input requires a `.pdf` output filename. The
+output parent directory must already exist. Exact output refuses directory
+inputs, multiple inputs, recursive traversal, symlink destinations, and existing
+destinations.
 
 Preview a replacement run without starting Ghostscript or changing anything:
 
@@ -214,6 +228,32 @@ pdf-slim.sh --input employment-form-scan.pdf \
   --output employment-form-cleaned.pdf --clean-scan standard
 ```
 
+The selected cleanup strength is passed directly to `scan-clean.sh`. PDF pages
+are rendered to temporary lossless PNG images, cleaned by the shared engine,
+and reassembled before the existing PDF quality and optional grayscale stages.
+
+Clean a JPG and create a PDF in one command:
+
+```bash
+pdf-slim.sh --input phone-scan.jpg --output phone-scan-cleaned.pdf \
+  --clean-scan standard
+```
+
+Raster-image input requires `--clean-scan`. Exact output must have a `.pdf`
+extension, and `--replace` is refused because replacing an image with a PDF
+would change its file type. In output-directory mode, image extensions are
+changed to `.pdf`, while directory structure is preserved:
+
+```bash
+pdf-slim.sh --input ./incoming-scans --output-dir ./cleaned-pdfs \
+  --clean-scan standard
+```
+
+For PDF page sizing, recorded image density of at least 150 DPI is preserved.
+Missing or lower density—common for phone photos—is treated as 300 DPI. This
+sets physical PDF page dimensions without adding, removing, or resampling
+pixels; the selected PDF quality policy may downsample afterward.
+
 Compare all three cleanup strengths:
 
 ```bash
@@ -260,7 +300,8 @@ Exit statuses are `0` for success, `1` when one or more conversions fail, and
 
 ## Standalone image cleanup
 
-Use `scan-clean.sh` when the input is an image rather than a PDF:
+Use `scan-clean.sh` for image-to-image cleanup. Use `pdf-slim.sh` when the
+desired output is PDF, whether the input is a PDF or raster image:
 
 ```text
 scan-clean.sh -i PATH [output options] [cleanup options]
@@ -455,11 +496,14 @@ done
 
 Both commands use Bash, GNU `timeout` (available as `timeout` or `gtimeout`),
 `find`, and `realpath`. `scan-clean.sh` requires ImageMagick (`magick`).
-`pdf-slim.sh` requires Ghostscript; its `--clean-scan` feature additionally
-requires ImageMagick and Poppler (`pdfinfo`, `pdfimages`, `pdftotext`,
-`pdfdetach`, and `pdftocairo`). Optional commands are checked only when their
-features are requested. The scripts are tested with macOS Bash 3.2 and newer
-Bash versions. The `all` PDF metadata mode additionally uses macOS `xattr`.
+`pdf-slim.sh` requires Ghostscript. Its `--clean-scan` feature also requires the
+companion `scan-clean.sh` and ImageMagick. Cleaning PDF input additionally uses
+Poppler (`pdfinfo`, `pdfimages`, `pdftotext`, `pdfdetach`, and `pdftocairo`);
+direct raster-image to PDF cleanup does not. `pdf-slim.sh` prefers an executable
+`scan-clean.sh` beside itself, then searches `PATH`. Optional commands are
+checked only when their features are requested. The scripts are tested with
+macOS Bash 3.2 and newer Bash versions. The `all` PDF metadata mode additionally
+uses macOS `xattr`.
 
 ## Installation
 
@@ -490,6 +534,9 @@ publication, metadata preservation, interruption cleanup, and replacement
 logging. It runs on macOS Bash 3.2 and newer Bash versions. Cleanup tests cover
 all three strengths, PDF page-size preservation, standalone batch filtering,
 automatic naming, transparency, metadata behavior, and safe input refusal.
+Image-to-PDF coverage includes physical page density, detailed quality and
+grayscale, batch extension mapping, recursive layout, collisions, animated
+input refusal, and protection against image replacement.
 
 ## Project layout
 
@@ -512,9 +559,12 @@ safety checks.
 
 ## Release status
 
-`pdf-slim.sh` version 1.1.0 adds guarded gentle, standard, and strong image-only
-PDF scan cleanup. `scan-clean.sh` version 1.0.0 applies adaptive cleanup directly
-to single-frame raster images with safe standalone and batch publication.
-Integration that makes `pdf-slim.sh` call the standalone engine is planned as a
-separate change. Future changes should remain backward-compatible or be
-released as a new major version.
+`pdf-slim.sh` version 1.2.0 delegates guarded PDF scan pixel cleanup to the
+companion `scan-clean.sh` engine while retaining PDF-specific inspection,
+metadata, quality, publication, replacement, and logging safeguards.
+It also accepts raster scans directly and creates cleaned PDFs through the same
+engine and PDF quality pipeline.
+`scan-clean.sh` version 1.0.0 applies the shared adaptive cleanup directly to
+single-frame raster images with safe standalone and batch publication. Future
+changes should remain backward-compatible or be released as a new major
+version.

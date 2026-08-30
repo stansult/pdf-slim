@@ -7,19 +7,25 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.1.0'
+VERSION='1.2.0'
 LOG_MAGIC='pdf-slim-log-v1'
+DEFAULT_IMAGE_INPUT_DPI='300'
+MINIMUM_CREDIBLE_IMAGE_DPI='150'
 
 usage() {
     cat <<EOF
+pdf-slim.sh safely reduces PDF file sizes and converts cleaned document scans
+from PDF or raster-image input into PDF output.
+For image output, use scan-clean.sh.
+
 Usage: $PROGRAM [options]
 
 Input:
-  -i, --input PATH    Input PDF, directory, or quoted glob pattern;
-                      repeat for multiple inputs
+  -i, --input PATH    Input PDF, raster image with --clean-scan, directory, or
+                      quoted glob pattern; repeat for multiple inputs
 
 Exactly one output mode is required:
-  -o, --output FILE   Write one input PDF to exactly FILE
+  -o, --output FILE   Write one input as PDF to exactly FILE
   --output-dir DIR    Preserve input-relative paths beneath DIR
   --replace           Replace originals only when safe conversion is smaller
 
@@ -55,17 +61,20 @@ Options:
   -h, --help          Show this help and exit
   --version           Show the version and exit
 
-PDF extensions are matched case-insensitively. Symlinks are warned about and
-skipped. Existing output files and destination collisions are errors. The
-default metadata policy preserves permissions plus access and modification
-timestamps. The "all" metadata mode is currently macOS-specific.
-Scan cleanup requires ImageMagick and Poppler. It safely refuses PDFs with
-detectable text, forms, attachments, links, vector content, or other layouts
-that cannot be flattened as image-only scans without losing content.
-Quote input glob patterns so the script receives them unchanged. Unquoted
-multi-match patterns are rejected before any conversion or write.
+Examples:
+  $PROGRAM -i report.pdf -o report-slim.pdf
+  $PROGRAM -i scan.jpg -o scan-cleaned.pdf --clean-scan standard
+  $PROGRAM -i documents --output-dir slimmed --recursive
 
-Exit status: 0 success, 1 one or more conversions failed, 2 invalid/unsafe request.
+Important:
+  Exactly one output mode is required. --replace modifies an original only
+  after successful validation and only when the result is smaller.
+  Quote input glob patterns. Symlinks are skipped.
+
+Full documentation:
+  https://github.com/stansult/pdf-slim
+
+Exit status: 0 success, 1 conversion failure, 2 invalid or unsafe request.
 EOF
 }
 
@@ -76,6 +85,8 @@ Choose how to handle converted PDFs. For the current directory:
   $PROGRAM --input . --replace
 For a single PDF:
   $PROGRAM --input original.pdf -o compressed.pdf
+For a scanned image:
+  $PROGRAM --input scan.jpg -o scan-cleaned.pdf --clean-scan standard
 Run '$PROGRAM --help' for full usage.
 EOF
 }
@@ -117,6 +128,20 @@ find_command() {
         fi
     done
     return 1
+}
+
+find_scan_clean_command() {
+    local script_path=$1
+    local sibling=${script_path%/*}/scan-clean.sh
+    local command_path
+
+    if [[ -f $sibling && -x $sibling ]]; then
+        realpath -- "$sibling"
+        return
+    fi
+    command_path=$(find_command scan-clean.sh) || return 1
+    [[ -f $command_path && -x $command_path ]] || return 1
+    realpath -- "$command_path"
 }
 
 remove_candidate() {
@@ -273,6 +298,7 @@ filter_logged_sources() {
     local -a kept_sources=()
     local -a kept_source_keys=()
     local -a kept_relatives=()
+    local -a kept_source_types=()
 
     [[ -e $log_file || -L $log_file ]] || return 0
     i=0
@@ -285,6 +311,7 @@ filter_logged_sources() {
             kept_sources[${#kept_sources[@]}]=${sources[$i]}
             kept_source_keys[${#kept_source_keys[@]}]=${source_keys[$i]}
             kept_relatives[${#kept_relatives[@]}]=${relatives[$i]}
+            kept_source_types[${#kept_source_types[@]}]=${source_types[$i]}
         else
             return 1
         fi
@@ -293,6 +320,7 @@ filter_logged_sources() {
     sources=("${kept_sources[@]}")
     source_keys=("${kept_source_keys[@]}")
     relatives=("${kept_relatives[@]}")
+    source_types=("${kept_source_types[@]}")
 }
 
 prepare_candidate_metadata() {
@@ -655,15 +683,11 @@ clean_scan_pdf() {
     local pdftotext_command=${11}
     local pdfdetach_command=${12}
     local pdftocairo_command=${13}
-    local levels page rendered cleaned dimensions pixel_width pixel_height
+    local scan_clean_command=${14}
+    local page rendered cleaned dimensions pixel_width pixel_height
     local output_x_dpi output_y_dpi
     local -a assembly_args=()
 
-    case $cleanup_mode in
-        gentle) levels='8%,96%' ;;
-        standard) levels='12%,94%' ;;
-        strong) levels='16%,92%' ;;
-    esac
     inspect_scan_pdf "$source" "$scan_directory" "$timeout_command" \
         "$timeout_duration" "$gs_command" "$magick_command" \
         "$pdfinfo_command" "$pdfimages_command" "$pdftotext_command" \
@@ -682,9 +706,10 @@ clean_scan_pdf() {
             return 1
         fi
         run_scan_command 'scan contrast cleanup' "$source" "$timeout_command" \
-            "$timeout_duration" "$magick_command" "$rendered.png" \
-            -colorspace Lab -channel R -level "$levels" +channel \
-            -colorspace sRGB "$cleaned" || return 1
+            "$timeout_duration" "$scan_clean_command" \
+            --input "$rendered.png" --output "$cleaned" \
+            --mode "$cleanup_mode" --strip-metadata \
+            --timeout "$timeout_duration" || return 1
         if [[ ! -s $cleaned ]]; then
             error "scan cleanup produced no page image (page $page): $source"
             return 1
@@ -714,6 +739,63 @@ clean_scan_pdf() {
     done
     run_scan_command 'cleaned PDF assembly' "$source" "$timeout_command" \
         "$timeout_duration" "$magick_command" "${assembly_args[@]}" \
+        -compress Zip "$cleaned_pdf" || return 1
+    if [[ ! -f $cleaned_pdf || -L $cleaned_pdf || ! -s $cleaned_pdf ]]; then
+        error "scan cleanup produced no valid nonempty PDF: $source"
+        return 1
+    fi
+}
+
+clean_image_to_pdf() {
+    local source=$1
+    local cleaned_pdf=$2
+    local scan_directory=$3
+    local cleanup_mode=$4
+    local timeout_command=$5
+    local timeout_duration=$6
+    local magick_command=$7
+    local scan_clean_command=$8
+    local cleaned_image=$scan_directory/cleaned.png
+    local source_x_dpi source_y_dpi source_units
+    local output_x_dpi=$DEFAULT_IMAGE_INPUT_DPI
+    local output_y_dpi=$DEFAULT_IMAGE_INPUT_DPI
+
+    run_scan_command 'image density inspection' "$source" "$timeout_command" \
+        "$timeout_duration" "$magick_command" identify -quiet \
+        -format '%x|%y|%[units]' "$source" || return 1
+    IFS='|' read -r source_x_dpi source_y_dpi source_units \
+        <<<"$SCAN_COMMAND_OUTPUT"
+    case $source_units in
+        PixelsPerInch)
+            output_x_dpi=$source_x_dpi
+            output_y_dpi=$source_y_dpi
+            ;;
+        PixelsPerCentimeter)
+            output_x_dpi=$(awk -v value="$source_x_dpi" \
+                'BEGIN { printf "%.8f", value * 2.54 }')
+            output_y_dpi=$(awk -v value="$source_y_dpi" \
+                'BEGIN { printf "%.8f", value * 2.54 }')
+            ;;
+    esac
+    if ! awk -v x="$output_x_dpi" -v y="$output_y_dpi" \
+        -v minimum="$MINIMUM_CREDIBLE_IMAGE_DPI" \
+        'BEGIN { exit !(x >= minimum && y >= minimum) }'; then
+        output_x_dpi=$DEFAULT_IMAGE_INPUT_DPI
+        output_y_dpi=$DEFAULT_IMAGE_INPUT_DPI
+    fi
+
+    run_scan_command 'image scan cleanup' "$source" "$timeout_command" \
+        "$timeout_duration" "$scan_clean_command" \
+        --input "$source" --output "$cleaned_image" \
+        --mode "$cleanup_mode" --strip-metadata \
+        --timeout "$timeout_duration" || return 1
+    if [[ ! -f $cleaned_image || -L $cleaned_image || ! -s $cleaned_image ]]; then
+        error "scan cleanup produced no valid image: $source"
+        return 1
+    fi
+    run_scan_command 'cleaned image PDF assembly' "$source" "$timeout_command" \
+        "$timeout_duration" "$magick_command" -units PixelsPerInch \
+        -density "${output_x_dpi}x${output_y_dpi}" "$cleaned_image" \
         -compress Zip "$cleaned_pdf" || return 1
     if [[ ! -f $cleaned_pdf || -L $cleaned_pdf || ! -s $cleaned_pdf ]]; then
         error "scan cleanup produced no valid nonempty PDF: $source"
@@ -888,6 +970,34 @@ is_pdf_name() {
     esac
 }
 
+is_raster_image_name() {
+    local name=${1##*/}
+    local extension
+
+    [[ $name == *.* ]] || return 1
+    extension=$(printf '%s' "${name##*.}" | tr '[:upper:]' '[:lower:]')
+    case $extension in
+        avif|bmp|gif|heic|heif|j2c|j2k|jp2|jpe|jpeg|jpg|jxl|pam|pbm|pgm|png|pnm|ppm|tif|tiff|webp)
+            return 0
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+image_relative_to_pdf() {
+    local relative=$1
+    local directory=${relative%/*}
+    local name=${relative##*/}
+
+    [[ $directory != "$relative" ]] || directory=''
+    name=${name%.*}.pdf
+    if [[ -n $directory ]]; then
+        printf '%s/%s\n' "$directory" "$name"
+    else
+        printf '%s\n' "$name"
+    fi
+}
+
 absolute_path() {
     local path=$1
     local segment result=''
@@ -923,7 +1033,7 @@ absolute_path() {
 append_source() {
     local source=$1
     local relative=$2
-    local canonical existing
+    local canonical existing source_type
     local i
 
     if [[ -L $source ]]; then
@@ -934,8 +1044,20 @@ append_source() {
         warn "skipping non-regular file: $source"
         return 0
     fi
-    if ! is_pdf_name "$source"; then
-        warn "skipping non-PDF file: $source"
+    if is_pdf_name "$source"; then
+        source_type=pdf
+    elif [[ -n $clean_scan ]] && is_raster_image_name "$source"; then
+        if [[ $mode == replace ]]; then
+            error "--replace cannot be used with raster-image input: $source"
+            return 1
+        fi
+        source_type=image
+    else
+        if [[ -n $clean_scan ]]; then
+            warn "skipping non-PDF/non-raster file: $source"
+        else
+            warn "skipping non-PDF file: $source"
+        fi
         return 0
     fi
 
@@ -956,6 +1078,7 @@ append_source() {
     sources[${#sources[@]}]=$source
     source_keys[${#source_keys[@]}]=$canonical
     relatives[${#relatives[@]}]=$relative
+    source_types[${#source_types[@]}]=$source_type
 }
 
 discover_directory() {
@@ -997,7 +1120,7 @@ discover_directory() {
 }
 
 plan_actions() {
-    local source relative destination destination_key
+    local source relative output_relative destination destination_key
     local existing_source
     local i j
     local failures=0
@@ -1006,12 +1129,16 @@ plan_actions() {
     while (( i < ${#sources[@]} )); do
         source=${sources[$i]}
         relative=${relatives[$i]}
+        output_relative=$relative
+        if [[ ${source_types[$i]} == image ]]; then
+            output_relative=$(image_relative_to_pdf "$relative")
+        fi
         if (( dry_run )) && [[ -n $clean_scan ]]; then
             printf 'would clean scan (%s): %s\n' "$clean_scan" "$source"
         fi
 
         if [[ $mode == output ]]; then
-            destination=$output_dir/$relative
+            destination=$output_dir/$output_relative
             destination_key=$(absolute_path "$destination") || {
                 error "cannot resolve destination: $destination"
                 failures=1
@@ -1071,6 +1198,7 @@ process_source() {
     local source=$1
     local relative=$2
     local destination=$3
+    local source_type=${4:-pdf}
     local candidate='' candidate_dir source_before source_after
     local timestamp_reference=''
     local scan_directory='' conversion_source=$source
@@ -1129,12 +1257,26 @@ process_source() {
             return 1
         }
         ACTIVE_SCAN_DIRECTORY=$scan_directory
+        scan_directory=$(realpath -- "$scan_directory") || {
+            error "could not resolve scan-cleanup temporary directory: $source"
+            clear_active_files
+            return 1
+        }
+        ACTIVE_SCAN_DIRECTORY=$scan_directory
         conversion_source=$scan_directory/cleaned.pdf
-        clean_scan_pdf "$source" "$conversion_source" "$scan_directory" \
-            "$clean_scan" "$timeout_command" "$timeout_duration" \
-            "$gs_command" "$magick_command" "$pdfinfo_command" \
-            "$pdfimages_command" "$pdftotext_command" "$pdfdetach_command" \
-            "$pdftocairo_command" || {
+        if [[ $source_type == image ]]; then
+            clean_image_to_pdf "$source" "$conversion_source" \
+                "$scan_directory" "$clean_scan" "$timeout_command" \
+                "$timeout_duration" "$magick_command" \
+                "$scan_clean_command"
+        else
+            clean_scan_pdf "$source" "$conversion_source" "$scan_directory" \
+                "$clean_scan" "$timeout_command" "$timeout_duration" \
+                "$gs_command" "$magick_command" "$pdfinfo_command" \
+                "$pdfimages_command" "$pdftotext_command" \
+                "$pdfdetach_command" "$pdftocairo_command" \
+                "$scan_clean_command"
+        fi || {
             clear_active_files
             return 1
         }
@@ -1257,6 +1399,7 @@ main() {
     local -a sources=()
     local -a source_keys=()
     local -a relatives=()
+    local -a source_types=()
     local -a destination_keys=()
     local -a destination_sources=()
     local -a destinations=()
@@ -1264,8 +1407,8 @@ main() {
     local log_file script_path
     local timeout_command gs_command magick_command pdfinfo_command
     local pdfimages_command pdftotext_command pdfdetach_command
-    local pdftocairo_command
-    local failures=0 i
+    local pdftocairo_command scan_clean_command
+    local failures=0 i needs_pdf_scan_tools=0
     ACTIVE_CANDIDATE=''
     ACTIVE_METADATA_REFERENCE=''
     ACTIVE_SCAN_DIRECTORY=''
@@ -1540,7 +1683,7 @@ main() {
             return 2
         fi
         if (( ${#inputs[@]} != 1 )); then
-            error '--output requires exactly one input PDF'
+            error '--output requires exactly one input file'
             return 2
         fi
         if [[ -L ${inputs[0]} ]]; then
@@ -1548,11 +1691,16 @@ main() {
             return 2
         fi
         if [[ ! -f ${inputs[0]} ]]; then
-            error "--output input must be a regular PDF file: ${inputs[0]}"
+            error "--output input must be a regular file: ${inputs[0]}"
             return 2
         fi
-        if ! is_pdf_name "${inputs[0]}"; then
-            error "--output input is not a PDF file: ${inputs[0]}"
+        if ! is_pdf_name "${inputs[0]}" &&
+            ! { [[ -n $clean_scan ]] && is_raster_image_name "${inputs[0]}"; }; then
+            error "--output input must be a PDF, or a raster image with --clean-scan: ${inputs[0]}"
+            return 2
+        fi
+        if ! is_pdf_name "${inputs[0]}" && ! is_pdf_name "$output_file"; then
+            error "raster-image input requires a .pdf output filename: $output_file"
             return 2
         fi
     fi
@@ -1580,7 +1728,11 @@ main() {
 
     (( discovery_failed == 0 )) || return 2
     if (( ${#sources[@]} == 0 )); then
-        warn 'no PDF files selected for processing'
+        if [[ -n $clean_scan ]]; then
+            warn 'no PDF or raster-image files selected for processing'
+        else
+            warn 'no PDF files selected for processing'
+        fi
         return 0
     fi
     script_path=$(realpath -- "$0") || {
@@ -1607,10 +1759,24 @@ main() {
         return 1
     }
     if [[ -n $clean_scan ]]; then
+        scan_clean_command=$(find_scan_clean_command "$script_path") || {
+            error 'scan-clean.sh is required for --clean-scan (no executable sibling or PATH command was found)'
+            return 1
+        }
         magick_command=$(find_command magick) || {
             error 'ImageMagick is required for --clean-scan (magick was not found)'
             return 1
         }
+        i=0
+        while (( i < ${#source_types[@]} )); do
+            if [[ ${source_types[$i]} == pdf ]]; then
+                needs_pdf_scan_tools=1
+                break
+            fi
+            ((i += 1))
+        done
+    fi
+    if (( needs_pdf_scan_tools )); then
         pdfinfo_command=$(find_command pdfinfo) || {
             error 'Poppler is required for --clean-scan (pdfinfo was not found)'
             return 1
@@ -1639,7 +1805,7 @@ main() {
     i=0
     while (( i < ${#sources[@]} )); do
         process_source "${sources[$i]}" "${relatives[$i]}" \
-            "${destinations[$i]}" || {
+            "${destinations[$i]}" "${source_types[$i]}" || {
             failures=1
             ((i += 1))
             continue

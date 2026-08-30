@@ -36,11 +36,10 @@ Repository page:
 https://github.com/stansult/pdf-slim
 ```
 
-The current branch is `master`, tracking `origin/master`. At the start of the
-standalone scan-clean phase, the working tree was clean and synchronized with
-the remote except for the ignored runtime log. The current working tree contains
-the uncommitted `scan-clean.sh` implementation, its tests, and corresponding
-README/handoff updates.
+The current branch is `master`, tracking `origin/master`. The standalone
+`scan-clean.sh` command was committed first; the `pdf-slim.sh` 1.2.0 integration,
+raster-image to PDF path, tests, and documentation followed as a separate
+logical phase.
 
 The implementation was developed through small logical commits. Do not rewrite
 this history.
@@ -107,9 +106,27 @@ The user explicitly approved these choices for `scan-clean.sh`:
     output atomically, continue after per-image failures, and return status 1 if
     any conversion fails.
 
-The first production phase is standalone only. Moving the PDF cleanup engine
-behind `scan-clean.sh` is deliberately deferred to a separate integration
-change so existing `pdf-slim.sh` behavior remains unchanged during this phase.
+The standalone engine was committed first. The subsequent PDF integration keeps
+the public `--clean-scan gentle|standard|strong` interface and all PDF-specific
+inspection, rendering, assembly, metadata, quality, grayscale, publication,
+replacement, and logging behavior. Each rendered lossless PNG page is passed to
+`scan-clean.sh` with the selected mode, the PDF timeout, an exact PNG output,
+and `--strip-metadata`; final PDF metadata remains the responsibility of
+`pdf-slim.sh`.
+
+`pdf-slim.sh` locates the cleanup engine by preferring an executable
+`scan-clean.sh` beside itself and then searching `PATH`. A missing engine is an
+error only when `--clean-scan` is requested. There is no PDF `--all-modes`;
+PDF cleanup continues to produce one PDF for one selected cleanup strength.
+
+Version 1.2.0 also accepts supported raster-image input when `--clean-scan` is
+selected. Exact output must be named `.pdf`; output-directory mode changes the
+image extension to `.pdf` and preserves relative structure. Image input with
+`--replace` is always refused. The image is cleaned to a lossless temporary PNG,
+assembled into a temporary PDF, and then processed by the existing PDF quality
+and optional grayscale pipeline. Recorded density at or above 150 DPI determines
+physical page size; missing or lower density uses 300 DPI without resampling
+pixels.
 
 ## Preserved legacy baseline
 
@@ -376,9 +393,7 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-Finish and review standalone `scan-clean.sh` version 1.0.0, then commit it as one
-logical change. Integrating `pdf-slim.sh` with this engine is a separate future
-phase; do not duplicate or move the PDF workflow until that phase is explicitly
-approved. Run `tests/run.sh`, Bash syntax checks, and ShellCheck before releases,
-preserve the legacy files and archived log, and keep changes small and
-reviewable.
+Version 1.2.0 completes shared cleanup and raster-image to PDF support. For
+future changes, run `tests/run.sh`, Bash syntax checks, and ShellCheck before
+release, preserve the legacy files and archived log, and keep subsequent
+changes small and reviewable.
