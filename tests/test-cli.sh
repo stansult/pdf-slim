@@ -35,6 +35,11 @@ grep -q -- 'For image output, use scan-clean.sh.' "$test_dir/help-long.out"
 grep -q -- '-i scan.jpg -o scan-cleaned.pdf --clean-scan standard' \
     "$test_dir/help-long.out"
 grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
+if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
+    "$test_dir/help-long.out"; then
+    printf '%s\n' 'help output must not be timestamped' >&2
+    exit 1
+fi
 [[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.2.0' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
@@ -45,10 +50,13 @@ fi
 grep -q -- '--input \. --output-dir slimmed' "$test_dir/no-args.err"
 grep -q -- '--input \. --replace' "$test_dir/no-args.err"
 grep -q -- '--help' "$test_dir/no-args.err"
-awk 'NR == 1 { next } NR == 2 { exit !($0 == "") }' \
-    "$test_dir/no-args.err"
+sed -n '1p' "$test_dir/no-args.err" | \
+    grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$'
+sed -n '2p' "$test_dir/no-args.err" | \
+    grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] pdf-slim\.sh: error:'
+awk 'NR == 3 { exit !($0 == "") }' "$test_dir/no-args.err"
 awk '/For a scanned image:/ { seen = 1; next }
-    seen && /^Run .*--help/ { exit !previous_blank }
+    seen && /Run .*--help/ { exit !previous_blank }
     { previous_blank = ($0 == "") }
     END { if (!seen) exit 1 }' "$test_dir/no-args.err"
 
@@ -70,7 +78,10 @@ printf '%100s\n' '%PDF-1.7 glob other' >"$test_dir/glob-input/other.pdf"
 PATH="$test_path" "$cli" --dry-run \
     -i "$test_dir/glob-input/doc*.pdf" \
     --output-dir "$test_dir/glob-output" >"$test_dir/glob.out"
-[[ $(grep -c '^would convert:' "$test_dir/glob.out") -eq 2 ]]
+[[ $(grep -Ec '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] would convert:' \
+    "$test_dir/glob.out") -eq 2 ]]
+sed -n '1p' "$test_dir/glob.out" | \
+    grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$'
 grep -q 'doc-one.pdf' "$test_dir/glob.out"
 grep -q 'doc two.pdf' "$test_dir/glob.out"
 [[ ! -e $test_dir/glob-output ]]
@@ -89,7 +100,8 @@ literal_glob_output=$test_dir/literal-glob-output.pdf
 PATH="$test_path" "$cli" --dry-run \
     -i "$test_dir/input/[glob]*.pdf" -o "$literal_glob_output" \
     >"$test_dir/literal-glob.out"
-[[ $(grep -c '^would convert:' "$test_dir/literal-glob.out") -eq 1 ]]
+[[ $(grep -Ec '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] would convert:' \
+    "$test_dir/literal-glob.out") -eq 1 ]]
 grep -Fq "$test_dir/input/[glob]*.pdf" "$test_dir/literal-glob.out"
 [[ ! -e $literal_glob_output ]]
 
@@ -106,8 +118,13 @@ grep -q "quote patterns passed to --input" "$test_dir/unquoted-glob.err"
 
 exact_output=$test_dir/exact-output.pdf
 FAKE_GS_MODE=success PATH="$test_path" \
-    "$cli" -i "$test_dir/input/one.pdf" -o "$exact_output" >/dev/null
+    "$cli" -i "$test_dir/input/one.pdf" -o "$exact_output" \
+    >"$test_dir/exact.out"
 [[ -s $exact_output ]]
+grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] processing:' \
+    "$test_dir/exact.out"
+grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] created:' \
+    "$test_dir/exact.out"
 [[ ! -e $test_dir/cli/processed_pdfs.log ]]
 
 exact_dry_output=$test_dir/exact-dry-output.pdf
@@ -191,7 +208,8 @@ FAKE_GS_MODE=failure FAKE_GS_ARGS_FILE="$args_file" PATH="$test_path" \
     -i "$test_dir/input" >"$test_dir/nonrecursive.out" 2>"$test_dir/nonrecursive.err"
 [[ ! -e $test_dir/dry-output ]]
 [[ ! -e $args_file ]]
-[[ $(grep -c '^would convert:' "$test_dir/nonrecursive.out") -eq 6 ]]
+[[ $(grep -Ec '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] would convert:' \
+    "$test_dir/nonrecursive.out") -eq 6 ]]
 if grep -q 'deep.pdf' "$test_dir/nonrecursive.out"; then
     printf '%s\n' 'non-recursive traversal unexpectedly selected a nested PDF' >&2
     exit 1
@@ -201,7 +219,8 @@ grep -q 'skipping non-PDF file:' "$test_dir/nonrecursive.err"
 
 PATH="$test_path" "$cli" --dry-run --replace --recursive \
     -i "$test_dir/input" >"$test_dir/recursive.out" 2>"$test_dir/recursive.err"
-[[ $(grep -c '^would replace if smaller:' "$test_dir/recursive.out") -eq 7 ]]
+[[ $(grep -Ec '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] would replace if smaller:' \
+    "$test_dir/recursive.out") -eq 7 ]]
 grep -q 'deep.pdf' "$test_dir/recursive.out"
 
 FAKE_GS_MODE=success PATH="$test_path" "$cli" --quality balanced \

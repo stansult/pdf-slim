@@ -24,6 +24,9 @@ LOG_RECORD_TIMESTAMPS=()
 LOG_RECORD_ARTIFACTS=()
 PROCESS_OUTCOME=''
 PROCESS_ARTIFACT=''
+OPERATIONAL_OUTPUT_STARTED=0
+OPERATIONAL_START_DATE=''
+OPERATIONAL_LAST_STREAM='stderr'
 
 usage() {
     cat <<EOF
@@ -83,6 +86,8 @@ Important:
   Exactly one output mode is required. --replace modifies an original only
   after successful validation and only when the result is smaller.
   Quote input glob patterns. Symlinks are skipped.
+  Operational messages are prefixed with local [HH:MM:SS]. The local date is
+  printed before the first message and again after the last only if it changed.
 
 Full documentation:
   https://github.com/stansult/pdf-slim
@@ -92,7 +97,9 @@ EOF
 }
 
 usage_hint() {
-    cat >&2 <<EOF
+    local text
+
+    text=$(cat <<EOF
 Choose how to handle converted PDFs. For the current directory:
   $PROGRAM --input . --output-dir slimmed
   $PROGRAM --input . --replace
@@ -103,18 +110,76 @@ For a scanned image:
 
 Run '$PROGRAM --help' for full usage.
 EOF
+)
+    operational_block stderr "$text"
+}
+
+raw_output_line() {
+    local stream=$1
+    local line=$2
+
+    if [[ $stream == stdout ]]; then
+        printf '%s\n' "$line"
+    else
+        printf '%s\n' "$line" >&2
+    fi
+}
+
+begin_operational_output() {
+    local stream=$1
+
+    if (( ! OPERATIONAL_OUTPUT_STARTED )); then
+        OPERATIONAL_START_DATE=$(date '+%Y-%m-%d') || \
+            OPERATIONAL_START_DATE='unknown-date'
+        raw_output_line "$stream" "[$OPERATIONAL_START_DATE]"
+        OPERATIONAL_OUTPUT_STARTED=1
+    fi
+    OPERATIONAL_LAST_STREAM=$stream
+}
+
+operational_block() {
+    local stream=$1
+    local text=$2
+    local line current_time
+
+    begin_operational_output "$stream"
+    while IFS= read -r line || [[ -n $line ]]; do
+        if [[ -z $line ]]; then
+            raw_output_line "$stream" ''
+            continue
+        fi
+        current_time=$(date '+%H:%M:%S') || current_time='??:??:??'
+        raw_output_line "$stream" "[$current_time] $line"
+    done <<< "$text"
+}
+
+operational_message() {
+    local stream=$1
+    local message=$2
+
+    operational_block "$stream" "$message"
+}
+
+finish_operational_output() {
+    local end_date
+
+    (( OPERATIONAL_OUTPUT_STARTED )) || return 0
+    end_date=$(date '+%Y-%m-%d') || end_date=$OPERATIONAL_START_DATE
+    if [[ $end_date != "$OPERATIONAL_START_DATE" ]]; then
+        raw_output_line "$OPERATIONAL_LAST_STREAM" "[$end_date]"
+    fi
 }
 
 error() {
-    printf '%s: error: %s\n' "$PROGRAM" "$*" >&2
+    operational_message stderr "$PROGRAM: error: $*"
 }
 
 warn() {
-    printf '%s: warning: %s\n' "$PROGRAM" "$*" >&2
+    operational_message stderr "$PROGRAM: warning: $*"
 }
 
 hint() {
-    printf '%s: hint: %s\n' "$PROGRAM" "$*" >&2
+    operational_message stderr "$PROGRAM: hint: $*"
 }
 
 expand_input_pattern() (
@@ -443,7 +508,8 @@ migrate_replacement_log() {
     fi
     load_replacement_log "$source_log" || return 1
     write_loaded_replacement_log "$destination_log" || return 1
-    printf 'migrated replacement history: %s\n' "$destination_log"
+    operational_message stdout \
+        "migrated replacement history: $destination_log"
 }
 
 append_replacement_log() {
@@ -504,7 +570,8 @@ filter_logged_sources() {
             ((j += 1))
         done
         if (( matched )); then
-            printf 'skipped unchanged file recorded as processed: %s\n' "${sources[$i]}"
+            operational_message stdout \
+                "skipped unchanged file recorded as processed: ${sources[$i]}"
         else
             kept_sources[${#kept_sources[@]}]=${sources[$i]}
             kept_source_keys[${#kept_source_keys[@]}]=${source_keys[$i]}
@@ -702,7 +769,8 @@ run_scan_command() {
     else
         error "$stage failed with status $status: $source"
     fi
-    [[ -z $SCAN_COMMAND_OUTPUT ]] || printf '%s\n' "$SCAN_COMMAND_OUTPUT" >&2
+    [[ -z $SCAN_COMMAND_OUTPUT ]] || \
+        operational_block stderr "$SCAN_COMMAND_OUTPUT"
     return 1
 }
 
@@ -1141,7 +1209,7 @@ convert_pdf() {
             error "Ghostscript failed with status $status: $source"
         fi
         if [[ -n $output ]]; then
-            printf '%s\n' "$output" >&2
+            operational_block stderr "$output"
         fi
         remove_candidate "$candidate"
         return 1
@@ -1150,7 +1218,7 @@ convert_pdf() {
     if [[ ! -f $candidate || -L $candidate || ! -s $candidate ]]; then
         error "Ghostscript produced no valid nonempty PDF candidate: $source"
         if [[ -n $output ]]; then
-            printf '%s\n' "$output" >&2
+            operational_block stderr "$output"
         fi
         remove_candidate "$candidate"
         return 1
@@ -1330,7 +1398,8 @@ plan_actions() {
             output_relative=$(image_relative_to_pdf "$relative")
         fi
         if (( dry_run )) && [[ -n $clean_scan ]]; then
-            printf 'would clean scan (%s): %s\n' "$clean_scan" "$source"
+            operational_message stdout \
+                "would clean scan ($clean_scan): $source"
         fi
 
         if [[ $mode == output ]]; then
@@ -1361,17 +1430,20 @@ plan_actions() {
             destination_sources[${#destination_sources[@]}]=$source
             destinations[${#destinations[@]}]=$destination
             if (( dry_run )); then
-                printf 'would convert: %s -> %s\n' "$source" "$destination"
+                operational_message stdout \
+                    "would convert: $source -> $destination"
             fi
         elif [[ $mode == file ]]; then
             destinations[${#destinations[@]}]=$output_file
             if (( dry_run )); then
-                printf 'would convert: %s -> %s\n' "$source" "$output_file"
+                operational_message stdout \
+                    "would convert: $source -> $output_file"
             fi
         else
             destinations[${#destinations[@]}]=$source
             if (( dry_run )); then
-                printf 'would replace if smaller: %s\n' "$source"
+                operational_message stdout \
+                    "would replace if smaller: $source"
             fi
         fi
         ((i += 1))
@@ -1516,7 +1588,8 @@ process_source() {
             return 1
         }
         if (( candidate_size >= original_size )); then
-            printf 'kept original (converted file was not smaller): %s\n' "$source"
+            operational_message stdout \
+                "kept original (converted file was not smaller): $source"
             PROCESS_OUTCOME='kept-not-smaller'
             clear_active_files
             return 0
@@ -1563,16 +1636,18 @@ process_source() {
     remove_candidate "$timestamp_reference"
     ACTIVE_METADATA_REFERENCE=''
     if [[ $mode == replace ]]; then
-        printf 'replaced: %s\n' "$source"
+        operational_message stdout "replaced: $source"
         PROCESS_OUTCOME='replaced'
     else
-        printf 'created: %s\n' "$destination"
+        operational_message stdout "created: $destination"
     fi
 }
 
 cleanup_active_candidate() {
     local status=$?
     clear_active_files
+    finish_operational_output
+    trap - EXIT
     exit "$status"
 }
 
@@ -1762,8 +1837,8 @@ main() {
                 if (( ${#inputs[@]} )); then
                     hint 'the shell may have expanded an unquoted input pattern'
                     hint "quote patterns passed to --input, for example:"
-                    printf "  %s --input '../test/doc*.pdf' --output-dir output\n" \
-                        "$PROGRAM" >&2
+                    operational_message stderr \
+                        "  $PROGRAM --input '../test/doc*.pdf' --output-dir output"
                 fi
                 parse_failed=1
                 ;;
@@ -2029,6 +2104,7 @@ main() {
     trap 'exit 143' TERM
     i=0
     while (( i < ${#sources[@]} )); do
+        operational_message stdout "processing: ${sources[$i]}"
         process_source "${sources[$i]}" "${relatives[$i]}" \
             "${destinations[$i]}" "${source_types[$i]}" || {
             failures=1
@@ -2053,4 +2129,7 @@ main() {
 
 if [[ ${PDF_SLIM_TESTING:-0} != 1 ]]; then
     main "$@"
+    main_status=$?
+    finish_operational_output
+    exit "$main_status"
 fi

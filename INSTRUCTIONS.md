@@ -60,7 +60,8 @@ tests/                         Automated suite and command doubles
 `pdf-slim.sh` 1.2.0 implements safe traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
-state directory, and guarded image-only scan cleanup.
+state directory, guarded image-only scan cleanup, and timestamped operational
+output.
 
 `scan-clean.sh` 1.0.0 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
@@ -201,6 +202,11 @@ The user has approved these decisions:
     explicit quality controls override cleanup defaults, and `--grayscale`
     remains independent. Refuse inputs whose detectable non-image content would
     be lost by flattening.
+14. Prefix operational output with local `[HH:MM:SS]` wall-clock timestamps.
+    Print `[YYYY-MM-DD]` before the first operational message and repeat the date
+    after the last only when the run crosses midnight. Emit `processing:` before
+    each real conversion. Leave help, version, and blank separator lines
+    undecorated.
 
 Implemented options:
 

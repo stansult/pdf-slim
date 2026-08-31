@@ -31,6 +31,9 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
 - Refuses existing output files and collisions between supplied roots.
 - Plans operations without running Ghostscript or writing output when using
   `--dry-run`.
+- Prefixes operational messages with local wall-clock time, with the local date
+  shown before the first message and repeated after the last only when the run
+  crosses midnight.
 - Records successful replacement outcomes and skips only unchanged files with
   matching identity and processing settings.
 - Offers gentle, standard, and strong contrast cleanup for safely detected
@@ -74,6 +77,12 @@ Exactly one output mode is required:
 --output-dir DIR    Preserve input-relative paths beneath DIR
 --replace           Replace originals only when safe conversion is smaller
 ```
+
+Operational output from `pdf-slim.sh` uses local `[HH:MM:SS]` timestamps. A
+`[YYYY-MM-DD]` line appears before the first operational message; the ending
+date is printed only if it differs because the run crossed midnight. Help and
+version output remain undecorated. Real conversions report `processing:` before
+work begins, so the start and completion times are both visible.
 
 Quality selection has two mutually exclusive approaches:
 
