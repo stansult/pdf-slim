@@ -5,6 +5,7 @@ set -o nounset
 
 project_dir=$(cd "$(dirname "$0")/.." && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/pdf-slim-image-pdf.XXXXXX")
+export PDF_SLIM_STATE_DIR=$test_dir/state
 cli=$project_dir/pdf-slim.sh
 
 cleanup() {

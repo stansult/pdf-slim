@@ -8,9 +8,22 @@ set -o nounset
 
 PROGRAM=${0##*/}
 VERSION='1.2.0'
-LOG_MAGIC='pdf-slim-log-v1'
+LOG_MAGIC='pdf-slim-log-v2'
+LOG_MAGIC_V1='pdf-slim-log-v1'
+LOG_WILDCARD_SIGNATURE='*'
+CONVERSION_POLICY_REVISION='1'
 DEFAULT_IMAGE_INPUT_DPI='300'
 MINIMUM_CREDIBLE_IMAGE_DPI='150'
+
+LOG_RECORD_PATHS=()
+LOG_RECORD_SIZES=()
+LOG_RECORD_MTIMES=()
+LOG_RECORD_SIGNATURES=()
+LOG_RECORD_OUTCOMES=()
+LOG_RECORD_TIMESTAMPS=()
+LOG_RECORD_ARTIFACTS=()
+PROCESS_OUTCOME=''
+PROCESS_ARTIFACT=''
 
 usage() {
     cat <<EOF
@@ -174,6 +187,82 @@ file_mtime() {
     stat -f '%m' -- "$1" 2>/dev/null || stat -c '%Y' -- "$1"
 }
 
+replacement_state_directory() {
+    local state_directory
+    local system_name
+
+    if [[ -n ${PDF_SLIM_STATE_DIR:-} ]]; then
+        state_directory=$PDF_SLIM_STATE_DIR
+    else
+        if [[ -z ${HOME:-} ]]; then
+            error 'HOME is required to locate replacement history'
+            return 1
+        fi
+        system_name=$(uname -s) || return 1
+        if [[ $system_name == Darwin ]]; then
+            state_directory=$HOME/Library/Application\ Support/pdf-slim
+        else
+            state_directory=${XDG_STATE_HOME:-$HOME/.local/state}/pdf-slim
+        fi
+    fi
+    if [[ $state_directory != /* ]]; then
+        error "replacement state directory must be an absolute path: $state_directory"
+        return 1
+    fi
+    printf '%s\n' "$state_directory"
+}
+
+ensure_replacement_state_directory() {
+    local state_directory=$1
+    local old_umask status
+
+    if [[ -L $state_directory ]]; then
+        error "replacement state directory must not be a symlink: $state_directory"
+        return 1
+    fi
+    if [[ -e $state_directory && ! -d $state_directory ]]; then
+        error "replacement state path is not a directory: $state_directory"
+        return 1
+    fi
+    if [[ ! -d $state_directory ]]; then
+        old_umask=$(umask)
+        umask 077
+        mkdir -p -- "$state_directory"
+        status=$?
+        umask "$old_umask"
+        if (( status != 0 )); then
+            error "could not create replacement state directory: $state_directory"
+            return 1
+        fi
+    fi
+    chmod 700 "$state_directory" || {
+        error "could not secure replacement state directory: $state_directory"
+        return 1
+    }
+}
+
+processing_signature() {
+    local quality=$1
+    local max_dpi=$2
+    local jpeg_recompress=$3
+    local grayscale=$4
+    local clean_scan=$5
+    local metadata_mode=$6
+    local normalized_jpeg=$jpeg_recompress
+
+    if [[ -n $normalized_jpeg && $normalized_jpeg == *.* ]]; then
+        while [[ $normalized_jpeg == *0 ]]; do
+            normalized_jpeg=${normalized_jpeg%0}
+        done
+        normalized_jpeg=${normalized_jpeg%.}
+    fi
+
+    printf 'policy=%s;quality=%s;max-dpi=%s;jpeg=%s;grayscale=%s;clean-scan=%s;metadata=%s\n' \
+        "$CONVERSION_POLICY_REVISION" "$quality" "${max_dpi:-none}" \
+        "${normalized_jpeg:-pass-through}" "$grayscale" \
+        "${clean_scan:-none}" "$metadata_mode"
+}
+
 acquire_log_lock() {
     local log_file=$1
     local lock_dir=$log_file.lock
@@ -197,7 +286,7 @@ release_log_lock() {
     fi
 }
 
-validate_log_header() {
+replacement_log_header() {
     local log_file=$1
     local header
 
@@ -209,24 +298,27 @@ validate_log_header() {
         error "replacement log has an invalid header: $log_file"
         return 1
     }
-    if [[ $header != "$LOG_MAGIC" ]]; then
+    if [[ $header != "$LOG_MAGIC" && $header != "$LOG_MAGIC_V1" ]]; then
         error "replacement log uses an unsupported format: $log_file"
         return 1
     fi
+    printf '%s\n' "$header"
 }
 
 ensure_replacement_log() {
     local log_file=$1
-    local old_umask
+    local state_directory=${log_file%/*}
+    local old_umask status
 
     if [[ -e $log_file || -L $log_file ]]; then
-        validate_log_header "$log_file"
+        [[ $(replacement_log_header "$log_file") == "$LOG_MAGIC" ]]
         return
     fi
+    ensure_replacement_state_directory "$state_directory" || return 1
     old_umask=$(umask)
     umask 077
     printf '%s\0' "$LOG_MAGIC" >"$log_file"
-    local status=$?
+    status=$?
     umask "$old_umask"
     (( status == 0 )) || {
         error "could not create replacement log: $log_file"
@@ -234,58 +326,147 @@ ensure_replacement_log() {
     }
 }
 
-replacement_log_contains() {
+load_replacement_log() {
     local log_file=$1
-    local source=$2
-    local canonical size mtime header record_path record_size record_mtime
-    local status=1
+    local header record_path record_size record_mtime record_signature
+    local record_outcome record_timestamp record_artifact incomplete=0
 
-    [[ -e $log_file || -L $log_file ]] || return 1
-    canonical=$(realpath -- "$source") || return 2
-    size=$(file_size "$source") || return 2
-    mtime=$(file_mtime "$source") || return 2
+    LOG_RECORD_PATHS=()
+    LOG_RECORD_SIZES=()
+    LOG_RECORD_MTIMES=()
+    LOG_RECORD_SIGNATURES=()
+    LOG_RECORD_OUTCOMES=()
+    LOG_RECORD_TIMESTAMPS=()
+    LOG_RECORD_ARTIFACTS=()
+    [[ -e $log_file || -L $log_file ]] || return 0
 
-    acquire_log_lock "$log_file" || return 2
-    if ! validate_log_header "$log_file"; then
+    acquire_log_lock "$log_file" || return 1
+    header=$(replacement_log_header "$log_file") || {
         release_log_lock
-        return 2
-    fi
+        return 1
+    }
     exec 3<"$log_file" || {
         release_log_lock
-        return 2
+        return 1
     }
-    IFS= read -r -d '' header <&3 || status=2
-    while (( status != 2 )) && IFS= read -r -d '' record_path <&3; do
-        IFS= read -r -d '' record_size <&3 || { status=2; break; }
-        IFS= read -r -d '' record_mtime <&3 || { status=2; break; }
-        if [[ $record_path == "$canonical" && $record_size == "$size" && \
-            $record_mtime == "$mtime" ]]; then
-            status=0
-            break
+    IFS= read -r -d '' header <&3 || incomplete=1
+    while (( ! incomplete )) && IFS= read -r -d '' record_path <&3; do
+        IFS= read -r -d '' record_size <&3 || { incomplete=1; break; }
+        IFS= read -r -d '' record_mtime <&3 || { incomplete=1; break; }
+        if [[ $header == "$LOG_MAGIC" ]]; then
+            IFS= read -r -d '' record_signature <&3 || { incomplete=1; break; }
+            IFS= read -r -d '' record_outcome <&3 || { incomplete=1; break; }
+            IFS= read -r -d '' record_timestamp <&3 || { incomplete=1; break; }
+            IFS= read -r -d '' record_artifact <&3 || { incomplete=1; break; }
+        else
+            record_signature=$LOG_WILDCARD_SIGNATURE
+            record_outcome='v1-import'
+            record_timestamp=''
+            record_artifact=''
         fi
+        LOG_RECORD_PATHS[${#LOG_RECORD_PATHS[@]}]=$record_path
+        LOG_RECORD_SIZES[${#LOG_RECORD_SIZES[@]}]=$record_size
+        LOG_RECORD_MTIMES[${#LOG_RECORD_MTIMES[@]}]=$record_mtime
+        LOG_RECORD_SIGNATURES[${#LOG_RECORD_SIGNATURES[@]}]=$record_signature
+        LOG_RECORD_OUTCOMES[${#LOG_RECORD_OUTCOMES[@]}]=$record_outcome
+        LOG_RECORD_TIMESTAMPS[${#LOG_RECORD_TIMESTAMPS[@]}]=$record_timestamp
+        LOG_RECORD_ARTIFACTS[${#LOG_RECORD_ARTIFACTS[@]}]=$record_artifact
     done
     exec 3<&-
     release_log_lock
-    if (( status == 2 )); then
+    if (( incomplete )); then
         error "replacement log contains an incomplete record: $log_file"
+        return 1
     fi
-    return "$status"
+}
+
+write_loaded_replacement_log() {
+    local log_file=$1
+    local state_directory=${log_file%/*}
+    local temporary_log old_umask status=0 i
+
+    ensure_replacement_state_directory "$state_directory" || return 1
+    temporary_log=$(mktemp "$state_directory/.pdf-slim-log.XXXXXX") || {
+        error "could not create replacement-log migration file: $state_directory"
+        return 1
+    }
+    old_umask=$(umask)
+    umask 077
+    printf '%s\0' "$LOG_MAGIC" >"$temporary_log" || status=1
+    i=0
+    while (( status == 0 && i < ${#LOG_RECORD_PATHS[@]} )); do
+        printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
+            "${LOG_RECORD_PATHS[$i]}" "${LOG_RECORD_SIZES[$i]}" \
+            "${LOG_RECORD_MTIMES[$i]}" "${LOG_RECORD_SIGNATURES[$i]}" \
+            "${LOG_RECORD_OUTCOMES[$i]}" "${LOG_RECORD_TIMESTAMPS[$i]}" \
+            "${LOG_RECORD_ARTIFACTS[$i]}" >>"$temporary_log" || status=1
+        ((i += 1))
+    done
+    umask "$old_umask"
+    if (( status != 0 )); then
+        rm -f -- "$temporary_log"
+        error "could not write migrated replacement log: $log_file"
+        return 1
+    fi
+    chmod 600 "$temporary_log" || {
+        rm -f -- "$temporary_log"
+        error "could not secure migrated replacement log: $log_file"
+        return 1
+    }
+    acquire_log_lock "$log_file" || {
+        rm -f -- "$temporary_log"
+        return 1
+    }
+    mv -f -- "$temporary_log" "$log_file" || {
+        release_log_lock
+        rm -f -- "$temporary_log"
+        error "could not publish migrated replacement log: $log_file"
+        return 1
+    }
+    release_log_lock
+}
+
+migrate_replacement_log() {
+    local source_log=$1
+    local destination_log=$2
+    local source_header
+
+    [[ -e $source_log || -L $source_log ]] || return 0
+    source_header=$(replacement_log_header "$source_log") || return 1
+    if [[ $source_log == "$destination_log" && $source_header == "$LOG_MAGIC" ]]; then
+        load_replacement_log "$source_log"
+        return
+    fi
+    if [[ $source_log != "$destination_log" && \
+        ( -e $destination_log || -L $destination_log ) ]]; then
+        return 0
+    fi
+    load_replacement_log "$source_log" || return 1
+    write_loaded_replacement_log "$destination_log" || return 1
+    printf 'migrated replacement history: %s\n' "$destination_log"
 }
 
 append_replacement_log() {
     local log_file=$1
     local source=$2
-    local canonical size mtime
+    local signature=$3
+    local outcome=$4
+    local artifact=${5:-}
+    local canonical size mtime processed_at
 
     canonical=$(realpath -- "$source") || return 1
     size=$(file_size "$source") || return 1
     mtime=$(file_mtime "$source") || return 1
+    processed_at=$(date +%s) || return 1
+    ensure_replacement_state_directory "${log_file%/*}" || return 1
     acquire_log_lock "$log_file" || return 1
     if ! ensure_replacement_log "$log_file"; then
         release_log_lock
         return 1
     fi
-    if ! printf '%s\0%s\0%s\0' "$canonical" "$size" "$mtime" >>"$log_file"; then
+    if ! printf '%s\0%s\0%s\0%s\0%s\0%s\0%s\0' \
+        "$canonical" "$size" "$mtime" "$signature" "$outcome" \
+        "$processed_at" "$artifact" >>"$log_file"; then
         error "could not append replacement log: $log_file"
         release_log_lock
         return 1
@@ -295,26 +476,40 @@ append_replacement_log() {
 
 filter_logged_sources() {
     local log_file=$1
-    local i status
+    local signature=$2
+    local i j canonical size mtime matched
     local -a kept_sources=()
     local -a kept_source_keys=()
     local -a kept_relatives=()
     local -a kept_source_types=()
 
     [[ -e $log_file || -L $log_file ]] || return 0
+    load_replacement_log "$log_file" || return 1
     i=0
     while (( i < ${#sources[@]} )); do
-        replacement_log_contains "$log_file" "${sources[$i]}"
-        status=$?
-        if (( status == 0 )); then
+        canonical=$(realpath -- "${sources[$i]}") || return 1
+        size=$(file_size "${sources[$i]}") || return 1
+        mtime=$(file_mtime "${sources[$i]}") || return 1
+        matched=0
+        j=0
+        while (( j < ${#LOG_RECORD_PATHS[@]} )); do
+            if [[ ${LOG_RECORD_PATHS[$j]} == "$canonical" && \
+                ${LOG_RECORD_SIZES[$j]} == "$size" && \
+                ${LOG_RECORD_MTIMES[$j]} == "$mtime" && \
+                ( ${LOG_RECORD_SIGNATURES[$j]} == "$signature" || \
+                ${LOG_RECORD_SIGNATURES[$j]} == "$LOG_WILDCARD_SIGNATURE" ) ]]; then
+                matched=1
+                break
+            fi
+            ((j += 1))
+        done
+        if (( matched )); then
             printf 'skipped unchanged file recorded as processed: %s\n' "${sources[$i]}"
-        elif (( status == 1 )); then
+        else
             kept_sources[${#kept_sources[@]}]=${sources[$i]}
             kept_source_keys[${#kept_source_keys[@]}]=${source_keys[$i]}
             kept_relatives[${#kept_relatives[@]}]=${relatives[$i]}
             kept_source_types[${#kept_source_types[@]}]=${source_types[$i]}
-        else
-            return 1
         fi
         ((i += 1))
     done
@@ -1205,6 +1400,9 @@ process_source() {
     local scan_directory='' conversion_source=$source
     local original_size candidate_size
 
+    PROCESS_OUTCOME=''
+    PROCESS_ARTIFACT=''
+
     if [[ $mode == output ]]; then
         ensure_output_parent "$relative" || return 1
         candidate_dir=${destination%/*}
@@ -1319,6 +1517,7 @@ process_source() {
         }
         if (( candidate_size >= original_size )); then
             printf 'kept original (converted file was not smaller): %s\n' "$source"
+            PROCESS_OUTCOME='kept-not-smaller'
             clear_active_files
             return 0
         fi
@@ -1365,6 +1564,7 @@ process_source() {
     ACTIVE_METADATA_REFERENCE=''
     if [[ $mode == replace ]]; then
         printf 'replaced: %s\n' "$source"
+        PROCESS_OUTCOME='replaced'
     else
         printf 'created: %s\n' "$destination"
     fi
@@ -1405,7 +1605,8 @@ main() {
     local -a destination_sources=()
     local -a destinations=()
     local output_root_key=''
-    local log_file script_path
+    local log_file lookup_log old_log_file script_path state_directory
+    local processing_policy
     local timeout_command gs_command magick_command pdfinfo_command
     local pdfimages_command pdftotext_command pdfdetach_command
     local pdftocairo_command scan_clean_command
@@ -1741,9 +1942,31 @@ main() {
         error 'could not resolve the script path for replacement logging'
         return 2
     }
-    log_file=${script_path%/*}/processed_pdfs.log
+    processing_policy=$(processing_signature "$quality" "$max_dpi" \
+        "$jpeg_recompress" "$grayscale" "$clean_scan" "$metadata_mode") || {
+        error 'could not determine the replacement processing policy'
+        return 2
+    }
+    if [[ $mode == replace ]]; then
+        state_directory=$(replacement_state_directory) || return 2
+        log_file=$state_directory/processed_pdfs.log
+        old_log_file=${script_path%/*}/processed_pdfs.log
+        lookup_log=$log_file
+        if (( dry_run )); then
+            if [[ ! -e $lookup_log && ! -L $lookup_log && \
+                ( -e $old_log_file || -L $old_log_file ) ]]; then
+                lookup_log=$old_log_file
+            fi
+        else
+            if [[ -e $log_file || -L $log_file ]]; then
+                migrate_replacement_log "$log_file" "$log_file" || return 2
+            elif [[ -e $old_log_file || -L $old_log_file ]]; then
+                migrate_replacement_log "$old_log_file" "$log_file" || return 2
+            fi
+        fi
+    fi
     if [[ $mode == replace && $reprocess -eq 0 ]]; then
-        filter_logged_sources "$log_file" || return 2
+        filter_logged_sources "$lookup_log" "$processing_policy" || return 2
     fi
     if (( ${#sources[@]} == 0 )); then
         return 0
@@ -1813,7 +2036,14 @@ main() {
             continue
         }
         if [[ $mode == replace ]]; then
-            append_replacement_log "$log_file" "${sources[$i]}" || failures=1
+            if [[ -z $PROCESS_OUTCOME ]]; then
+                error "replacement completed without a log outcome: ${sources[$i]}"
+                failures=1
+            else
+                append_replacement_log "$log_file" "${sources[$i]}" \
+                    "$processing_policy" "$PROCESS_OUTCOME" \
+                    "$PROCESS_ARTIFACT" || failures=1
+            fi
         fi
         ((i += 1))
     done

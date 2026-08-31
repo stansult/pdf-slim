@@ -52,7 +52,6 @@ scan-clean.sh                  Standalone raster-image scan cleanup command
 legacy/pdf_low.sh              Usable legacy conversion script
 legacy/pdf_low_replace.sh      Preserved legacy replacement script
 legacy/processed_pdfs.log      Ignored archived legacy runtime history
-processed_pdfs.log             Ignored active replacement log (created on demand)
 README.md                      Short project/layout description
 INSTRUCTIONS.md                This handoff
 .gitignore                     Runtime/temp exclusions
@@ -61,8 +60,8 @@ tests/                         Automated suite and command doubles
 
 The active PDF script implements safe traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
-metadata preservation, versioned null-delimited replacement logging, and
-guarded image-only scan cleanup.
+metadata preservation, policy-aware versioned replacement history in the user
+state directory, and guarded image-only scan cleanup.
 
 The standalone `scan-clean.sh` command implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
@@ -301,10 +300,17 @@ Log only terminal successful outcomes: replaced, or valid conversion retained
 because it was not smaller. Never log failure, timeout, invalid/empty output, or
 interruption. `--reprocess` bypasses checks without erasing history.
 
-Before implementing the final format, discuss with the user whether to use a
-null-delimited log and whether records should include size and modification time
-so changed files are not incorrectly skipped. Do not trust old log entries as
-proof of successful conversion.
+Version 2 stores null-delimited canonical path, size, modification time,
+resolved processing signature, outcome, processing time, and an optional
+related artifact. It loads history once per batch and skips only a matching
+file identity plus matching processing signature. Version-1 and legacy imports
+use a wildcard signature to preserve their historical skip behavior; do not
+treat those entries as proof of successful conversion.
+
+The default state location is `~/Library/Application Support/pdf-slim` on
+macOS and `${XDG_STATE_HOME:-$HOME/.local/state}/pdf-slim` elsewhere.
+`PDF_SLIM_STATE_DIR` accepts an absolute override. State directories use mode
+`700` and the log uses mode `600`.
 
 ### 6. Quality modes
 
@@ -393,7 +399,8 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-Version 1.2.0 completes shared cleanup and raster-image to PDF support. For
-future changes, run `tests/run.sh`, Bash syntax checks, and ShellCheck before
-release, preserve the legacy files and archived log, and keep subsequent
-changes small and reviewable.
+Version 1.2.0 completes shared cleanup and raster-image to PDF support. The
+current post-1.2.0 work introduces policy-aware version-2 replacement history
+before migrating the archived legacy paths. For future changes, run
+`tests/run.sh`, Bash syntax checks, and ShellCheck before release, and keep
+subsequent changes small and reviewable.

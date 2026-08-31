@@ -32,7 +32,7 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
 - Plans operations without running Ghostscript or writing output when using
   `--dry-run`.
 - Records successful replacement outcomes and skips only unchanged files with
-  matching canonical path, size, and modification time.
+  matching identity and processing settings.
 - Offers gentle, standard, and strong contrast cleanup for safely detected
   image-only scans while retaining their page size, resolution, and color.
 - Delegates PDF page pixel cleanup to the companion `scan-clean.sh` engine so
@@ -197,8 +197,8 @@ recorded in `processed_pdfs.log` are skipped on later runs:
 ./pdf-slim.sh --input ./archive --replace --recursive
 ```
 
-Retry files even when their current path, size, and modification time match the
-replacement log:
+Retry files even when their current identity and processing settings match the
+replacement history:
 
 ```bash
 ./pdf-slim.sh --input ./archive --replace --reprocess --recursive
@@ -420,13 +420,28 @@ preserves permissions plus access and modification timestamps. On macOS, `all`
 also preserves and verifies ownership, file flags, ACLs, and extended attributes
 such as Finder tags.
 
-For replacement runs, `pdf-slim.sh` creates or reuses `processed_pdfs.log`
-beside the script. The runtime log is excluded from Git. It starts with a
-null-terminated format marker, and each successful replacement outcome then
-appends three null-terminated fields: canonical path, current byte size, and
-modification time. A failed, timed-out, interrupted, or invalid conversion
-never adds a record. `--reprocess` bypasses matching records without erasing
-history or disabling safety checks.
+For replacement runs, `pdf-slim.sh` creates or reuses private processing
+history at:
+
+```text
+macOS:  ~/Library/Application Support/pdf-slim/processed_pdfs.log
+Linux:  ${XDG_STATE_HOME:-$HOME/.local/state}/pdf-slim/processed_pdfs.log
+```
+
+Set `PDF_SLIM_STATE_DIR` to an absolute directory to override that location.
+The directory uses mode `700` and the log uses mode `600`.
+
+The version-2 null-delimited log records canonical path, current byte size,
+modification time, resolved processing signature, outcome, processing time,
+and an optional related artifact. An unchanged file is skipped only when its
+processing signature also matches; quality, detailed image settings,
+grayscale, scan cleanup, and metadata policy therefore remain independent
+replacement attempts. The history is loaded once for each batch.
+
+Processing history created by earlier versions is migrated automatically. A
+failed, timed-out, interrupted, or invalid conversion never adds a record.
+`--reprocess` bypasses matching records without erasing history or disabling
+safety checks.
 
 ## Quality policies
 
