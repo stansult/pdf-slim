@@ -420,10 +420,13 @@ preserves permissions plus access and modification timestamps. On macOS, `all`
 also preserves and verifies ownership, file flags, ACLs, and extended attributes
 such as Finder tags.
 
-The replacement log starts with a null-terminated format marker. Each successful
-replacement outcome then appends three null-terminated fields: canonical path,
-current byte size, and modification time. A failed, timed-out, interrupted, or
-invalid conversion never adds a record.
+For replacement runs, `pdf-slim.sh` creates or reuses `processed_pdfs.log`
+beside the script. The runtime log is excluded from Git. It starts with a
+null-terminated format marker, and each successful replacement outcome then
+appends three null-terminated fields: canonical path, current byte size, and
+modification time. A failed, timed-out, interrupted, or invalid conversion
+never adds a record. `--reprocess` bypasses matching records without erasing
+history or disabling safety checks.
 
 ## Quality policies
 
@@ -556,19 +559,11 @@ input refusal, and protection against image replacement.
 ```text
 pdf-slim.sh                 Active command
 scan-clean.sh               Standalone raster-image cleanup command
-legacy/pdf_low.sh           Preserved original output-directory script
-legacy/pdf_low_replace.sh   Preserved original replacement script
+README.md                   User documentation
 INSTRUCTIONS.md             Development handoff and implementation plan
-processed_pdfs.log          Ignored active replacement history (created on demand)
 tests/                       Automated conversion, publication, logging, and CLI tests
+.gitignore                   Generated-file exclusions
 ```
-
-The files under `legacy/` remain usable reference tools during development. The
-preexisting local runtime history is archived (and remains excluded from Git)
-as `legacy/processed_pdfs.log`. The active script creates or reuses an ignored
-root-level `processed_pdfs.log` in its null-delimited versioned format.
-`--reprocess` bypasses matching records without erasing history or disabling
-safety checks.
 
 ## Release status
 
