@@ -2,13 +2,14 @@
 
 ## Objective
 
-Build one reliable, configurable Bash command for reducing PDF file sizes with
-Ghostscript. The default quality policy must prioritize preserving the visible
-appearance of the source PDF. More aggressive, lossy compression must be
-available only through explicit options.
+Maintain one reliable, configurable Bash command for reducing PDF file sizes
+with Ghostscript. The default quality policy must prioritize preserving the
+visible appearance of the source PDF. More aggressive, lossy compression must
+be available only through explicit options.
 
-The active project and command are named **pdf-slim**. The old name `pdf_low`
-applies only to the preserved legacy filenames.
+The active project and primary command are named **pdf-slim**. The companion
+`scan-clean.sh` command owns standalone raster-image cleanup. The former
+`pdf_low` scripts have been retired and removed from the repository.
 
 ## Project location and access requirement
 
@@ -38,8 +39,9 @@ https://github.com/stansult/pdf-slim
 
 The current branch is `master`, tracking `origin/master`. The standalone
 `scan-clean.sh` command was committed first; the `pdf-slim.sh` 1.2.0 integration,
-raster-image to PDF path, tests, and documentation followed as a separate
-logical phase.
+raster-image-to-PDF path, tests, and documentation followed as a separate
+logical phase. Policy-aware replacement history and retirement of the legacy
+scripts were subsequently committed and pushed.
 
 The implementation was developed through small logical commits. Do not rewrite
 this history.
@@ -49,21 +51,18 @@ this history.
 ```text
 pdf-slim.sh                    Active functional consolidated script
 scan-clean.sh                  Standalone raster-image scan cleanup command
-legacy/pdf_low.sh              Usable legacy conversion script
-legacy/pdf_low_replace.sh      Preserved legacy replacement script
-legacy/processed_pdfs.log      Ignored archived legacy runtime history
-README.md                      Short project/layout description
+README.md                      User documentation
 INSTRUCTIONS.md                This handoff
 .gitignore                     Runtime/temp exclusions
 tests/                         Automated suite and command doubles
 ```
 
-The active PDF script implements safe traversal, dry-run planning, reliable
+`pdf-slim.sh` 1.2.0 implements safe traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
 state directory, and guarded image-only scan cleanup.
 
-The standalone `scan-clean.sh` command implements adaptive gentle, standard,
+`scan-clean.sh` 1.0.0 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
 glob, or nonrecursive directory; supports exact, automatic, and output-directory
 publication; preserves image metadata and transparency where supported; and
@@ -127,25 +126,22 @@ and optional grayscale pipeline. Recorded density at or above 150 DPI determines
 physical page size; missing or lower density uses 300 DPI without resampling
 pixels.
 
-## Preserved legacy baseline
+## Retired legacy files and completed history migration
 
-The legacy scripts remain usable while consolidation is completed. The user
-intentionally changed `legacy/pdf_low.sh` from `/ebook` to `/printer` in commit
-`030b997`. Their current verified SHA-256 hashes are:
+The two `pdf_low` scripts were reviewed for behavior not yet represented in the
+active command, then removed in commit `5bbe910`. The repository no longer has
+a `legacy/` directory. Do not recreate or extend the retired scripts.
 
-```text
-6b6cb630e848997f5ecfb4e7362ecb4011984dc0693a1258cfe4a770bf0200d8  legacy/pdf_low.sh
-ac1fa2f24df52d656712d932be2688d26225cf1e0f3e1951d1e37c8a70798bba  legacy/pdf_low_replace.sh
-```
+The old path-only processing history was migrated into the private version-2
+history after checking existing paths, high-confidence relocations, folder
+relationships, duplicate filenames, and user-reviewed mismatches. The archived
+legacy log and temporary review lists were then removed. At migration
+completion, the active history contained 3,731 validated records.
 
-The legacy scripts contain known quoting, traversal, error-handling, temporary
-file, replacement, and logging problems. They are reference material, not code
-to extend. Do not clean their trailing whitespace or rename them.
-
-The preexisting runtime history was moved, with user approval, to
-`legacy/processed_pdfs.log`. It remains ignored and unmodified. The active
-script creates or reuses a root-level `processed_pdfs.log` in its new versioned
-null-delimited format.
+The live history is not a content cache. It records processing attempts against
+specific file identities. A legacy path may be associated with one current path
+only when relocation evidence is strong; identical bytes alone do not justify
+creating history for every copy.
 
 ## Environment last observed
 
@@ -166,7 +162,7 @@ the new thread because environment state can change.
 
 ## Agreed interface and behavior
 
-The canonical command will be:
+The canonical command is:
 
 ```bash
 pdf-slim.sh [options]
@@ -206,7 +202,7 @@ The user has approved these decisions:
     remains independent. Refuse inputs whose detectable non-image content would
     be lost by flattening.
 
-Planned options:
+Implemented options:
 
 - `-i PATH`, `--input PATH` — select an input PDF, directory, or quoted glob
   pattern; repeat for multiple inputs.
@@ -234,22 +230,21 @@ Correctly handle spaces, tabs, glob characters, and leading hyphens. Use Bash
 arrays and null-delimited traversal; do not use string-based file loops, parse
 `ls`, or globally change `IFS`.
 
-One output-layout detail remains to implement carefully: when several supplied
-roots would map different sources to the same destination, detect the collision
-and fail safely rather than choosing or overwriting one silently.
+When several supplied roots would map different sources to the same
+destination, the implementation detects the collision and fails safely rather
+than choosing or overwriting one silently.
 
-## Implementation sequence
+## Completed implementation sequence and retained constraints
 
-### 1. Verify the new workspace before editing
+The stages below are complete. They remain as design and regression constraints
+for future changes rather than as an unfinished implementation checklist.
 
-1. Confirm `pwd` is `/Users/stansult/dev/pdf-slim`.
-2. Confirm `git status`, remote, branch, and files.
-3. Verify the two legacy hashes above.
-4. Test a harmless patch edit/revert in the real project path to prove ordinary
-   write access, not merely terminal read access.
-5. Inspect and then remove only the temporary `/Users/stansult/dev/pdf_low`
-   symlink. Never operate recursively on it.
-6. Reconfirm the working tree before implementation.
+### 1. Historical workspace verification — completed
+
+The project root, Git state, remote, branch, and ordinary patch access were
+verified before implementation. The two legacy scripts were hash-verified
+before their later retirement. The temporary `/Users/stansult/dev/pdf_low`
+compatibility symlink was resolved and removed without affecting the project.
 
 ### 2. Interface and safe traversal
 
@@ -273,8 +268,14 @@ status=$?
 
 Treat all nonzero statuses as failures, identify timeout separately where
 practical, print captured diagnostics, and require the result to be a nonempty
-regular file. Warning-string inspection and `-dPDFSTOPONWARNING` can supplement
-but never replace exit-status checks.
+regular file. Warning-string inspection can supplement but never replace
+exit-status checks.
+
+Recovery-warning handling remains future work: a successful Ghostscript exit
+that reports repairing or recovering a damaged PDF must never cause
+`--replace` to replace the original. The intended behavior is to preserve the
+original and retain a separate recovered candidate for inspection; its public
+reporting and artifact naming still need to be designed and approved.
 
 ### 4. Safe output publication and replacement
 
@@ -314,8 +315,9 @@ macOS and `${XDG_STATE_HOME:-$HOME/.local/state}/pdf-slim` elsewhere.
 
 ### 6. Quality modes
 
-Do not finalize lossy presets until interface, conversion, replacement, output,
-cleanup, and logging behavior are tested.
+The lossy presets below were finalized after interface, conversion, replacement,
+output, cleanup, logging, and representative quality testing. Future changes to
+their values require renewed comparison and user approval.
 
 - `preserve` (default): no intentional image downsampling and normally no
   `-dPDFSETTINGS`; use lossless Flate image encoding.
@@ -363,8 +365,21 @@ Always run:
 bash -n pdf-slim.sh
 ```
 
-Use `shellcheck` if it becomes available, but do not install it without approval.
-Expand `README.md` after behavior stabilizes.
+Run ShellCheck; it is installed in the last observed environment. Do not install
+or upgrade dependencies without approval.
+Keep `README.md` and both commands' usage text aligned with behavior.
+
+## Deferred work
+
+1. Implement the Ghostscript recovery-warning behavior described above, with
+   tests for zero-status repaired/recovered input and safe `--replace` handling.
+2. Add an optional progress counter for large batch runs.
+3. Design a regular version-2 history-integrity check covering the header,
+   complete records, valid fields, duplicate records, permissions, and possibly
+   stale paths. Decide whether it belongs in `pdf-slim.sh`, a separate command,
+   or maintenance tests before implementation.
+4. Keep forced PDF 1.4 compatibility or a PDF-version option deferred unless a
+   concrete compatibility need appears.
 
 ## Safety constraints
 
@@ -375,7 +390,8 @@ Expand `README.md` after behavior stabilizes.
 - Avoid broad deletion commands, unresolved destructive paths, and `rm` followed
   by `mv` replacement sequences.
 - Keep destructive behavior explicit through `--replace`.
-- Do not modify legacy files or the preexisting runtime log.
+- Treat the private state directory and active replacement history as user data;
+  never rewrite or discard it casually.
 - Do not create/push another remote or install dependencies without user approval.
 - Present material CLI, metadata, logging-format, and quality choices to the user
   before finalizing them.
@@ -399,8 +415,8 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-Version 1.2.0 completes shared cleanup and raster-image to PDF support. The
-current post-1.2.0 work introduces policy-aware version-2 replacement history
-before migrating the archived legacy paths. For future changes, run
+The implementation and legacy-history migration are complete. The next
+substantive safety improvement is Ghostscript recovery-warning handling, but it
+requires explicit design approval before code changes. For future changes, run
 `tests/run.sh`, Bash syntax checks, and ShellCheck before release, and keep
 subsequent changes small and reviewable.
