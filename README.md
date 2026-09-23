@@ -568,15 +568,8 @@ Run the complete automated suite with:
 ./tests/run.sh
 ```
 
-The suite uses disposable files plus Ghostscript and ImageMagick command doubles
-to cover CLI validation and traversal, conversion failures and timeouts, atomic
-publication, metadata preservation, interruption cleanup, and replacement
-logging. It runs on macOS Bash 3.2 and newer Bash versions. Cleanup tests cover
-all three strengths, PDF page-size preservation, standalone batch filtering,
-automatic naming, transparency, metadata behavior, and safe input refusal.
-Image-to-PDF coverage includes physical page density, detailed quality and
-grayscale, batch extension mapping, recursive layout, collisions, animated
-input refusal, and protection against image replacement.
+See the [detailed testing guide](tests/README.md) for prerequisites, focused
+commands, fixtures, and coverage by test script.
 
 ## Project layout
 
