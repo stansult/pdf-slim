@@ -6,12 +6,19 @@ set -o nounset
 project_dir=$(cd "$(dirname "$0")/.." && pwd)
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/pdf-slim-concurrent-logging.XXXXXX")
 fake_gs_pid=''
+concurrent_pid_one=''
+concurrent_pid_two=''
 
 cleanup() {
-    if [[ -n $fake_gs_pid ]] && kill -0 "$fake_gs_pid" 2>/dev/null; then
-        kill "$fake_gs_pid" 2>/dev/null || true
-        wait "$fake_gs_pid" 2>/dev/null || true
-    fi
+    local background_pid
+    for background_pid in \
+        "$fake_gs_pid" "$concurrent_pid_one" "$concurrent_pid_two"
+    do
+        if [[ -n $background_pid ]] && kill -0 "$background_pid" 2>/dev/null; then
+            kill "$background_pid" 2>/dev/null || true
+            wait "$background_pid" 2>/dev/null || true
+        fi
+    done
     rm -rf -- "$test_dir"
 }
 trap cleanup EXIT HUP INT TERM
@@ -78,4 +85,113 @@ then
 fi
 grep -q 'must be a positive integer' "$test_dir/invalid.stderr"
 
-printf '%s\n' 'concurrent logging fixture tests passed'
+concurrent_dir=$test_dir/concurrent-new-log
+concurrent_bin=$concurrent_dir/bin
+concurrent_state=$concurrent_dir/state
+concurrent_release=$concurrent_dir/release
+concurrent_ready_one=$concurrent_dir/ready-one
+concurrent_ready_two=$concurrent_dir/ready-two
+source_one=$concurrent_dir/source-one.pdf
+source_two=$concurrent_dir/source-two.pdf
+log_file=$concurrent_state/processed_pdfs.log
+mkdir -p "$concurrent_bin"
+ln -s "$fake_gs" "$concurrent_bin/gs"
+printf '%1000s\n' '%PDF-1.7 concurrent source one' >"$source_one"
+printf '%1200s\n' '%PDF-1.7 concurrent source two' >"$source_two"
+
+PDF_SLIM_STATE_DIR=$concurrent_state \
+FAKE_GS_MODE=success \
+FAKE_GS_READY_FILE=$concurrent_ready_one \
+FAKE_GS_RELEASE_FILE=$concurrent_release \
+FAKE_GS_BARRIER_ATTEMPTS=50 \
+PATH="$concurrent_bin:$PATH" \
+    "$project_dir/pdf-slim.sh" --replace -i "$source_one" \
+    >"$concurrent_dir/one.stdout" 2>"$concurrent_dir/one.stderr" &
+concurrent_pid_one=$!
+
+PDF_SLIM_STATE_DIR=$concurrent_state \
+FAKE_GS_MODE=success \
+FAKE_GS_READY_FILE=$concurrent_ready_two \
+FAKE_GS_RELEASE_FILE=$concurrent_release \
+FAKE_GS_BARRIER_ATTEMPTS=50 \
+PATH="$concurrent_bin:$PATH" \
+    "$project_dir/pdf-slim.sh" --replace -i "$source_two" \
+    >"$concurrent_dir/two.stdout" 2>"$concurrent_dir/two.stderr" &
+concurrent_pid_two=$!
+
+ready_attempt=0
+while [[ ! -e $concurrent_ready_one || ! -e $concurrent_ready_two ]]; do
+    if ! kill -0 "$concurrent_pid_one" 2>/dev/null || \
+        ! kill -0 "$concurrent_pid_two" 2>/dev/null
+    then
+        printf '%s\n' 'a concurrent conversion exited before both were ready' >&2
+        exit 1
+    fi
+    if ((ready_attempt >= 50)); then
+        printf '%s\n' 'timed out waiting for concurrent conversions' >&2
+        exit 1
+    fi
+    sleep 0.1
+    ((ready_attempt += 1))
+done
+
+[[ ! -e $log_file ]]
+: >"$concurrent_release"
+status_one=0
+status_two=0
+wait "$concurrent_pid_one" || status_one=$?
+concurrent_pid_one=''
+wait "$concurrent_pid_two" || status_two=$?
+concurrent_pid_two=''
+[[ $status_one -eq 0 && $status_two -eq 0 ]]
+
+[[ -f $log_file && ! -L $log_file ]]
+[[ $(stat -f '%Lp' "$concurrent_state") == 700 ]]
+[[ $(stat -f '%Lp' "$log_file") == 600 ]]
+[[ ! -e $log_file.lock ]]
+[[ -z $(find "$concurrent_state" -mindepth 1 \
+    ! -name processed_pdfs.log -print -quit) ]]
+
+canonical_one=$(realpath "$source_one")
+canonical_two=$(realpath "$source_two")
+found_one=0
+found_two=0
+record_count=0
+exec 3<"$log_file"
+IFS= read -r -d '' header <&3
+[[ $header == pdf-slim-log-v2 ]]
+while IFS= read -r -d '' record_path <&3; do
+    IFS= read -r -d '' record_size <&3
+    IFS= read -r -d '' record_mtime <&3
+    IFS= read -r -d '' record_signature <&3
+    IFS= read -r -d '' record_outcome <&3
+    IFS= read -r -d '' record_timestamp <&3
+    IFS= read -r -d '' record_artifact <&3
+    ((record_count += 1))
+
+    case $record_path in
+        "$canonical_one")
+            ((found_one += 1))
+            [[ $record_size == "$(stat -f '%z' "$source_one")" ]]
+            [[ $record_mtime == "$(stat -f '%m' "$source_one")" ]]
+            ;;
+        "$canonical_two")
+            ((found_two += 1))
+            [[ $record_size == "$(stat -f '%z' "$source_two")" ]]
+            [[ $record_mtime == "$(stat -f '%m' "$source_two")" ]]
+            ;;
+        *)
+            printf 'unexpected concurrent log path: %s\n' "$record_path" >&2
+            exit 1
+            ;;
+    esac
+    [[ $record_signature == *'quality=preserve;'* ]]
+    [[ $record_outcome == replaced ]]
+    [[ $record_timestamp =~ ^[0-9]+$ ]]
+    [[ -z $record_artifact ]]
+done
+exec 3<&-
+[[ $record_count -eq 2 ]]
+[[ $found_one -eq 1 && $found_two -eq 1 ]]
+
+printf '%s\n' 'concurrent logging tests passed'

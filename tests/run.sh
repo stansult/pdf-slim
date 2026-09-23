@@ -9,6 +9,7 @@ for test_script in \
     test-conversion.sh \
     test-publication.sh \
     test-logging.sh \
+    test-concurrent-logging.sh \
     test-timestamps.sh \
     test-cli.sh \
     test-real-gs.sh \
