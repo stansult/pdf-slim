@@ -17,6 +17,31 @@ if [[ -z $output_file ]]; then
     exit 64
 fi
 
+# Optional deterministic barrier for concurrency tests. Signal readiness only
+# after the output path has been parsed, then wait a bounded time for release.
+if [[ -n ${FAKE_GS_READY_FILE:-} ]]; then
+    : >"$FAKE_GS_READY_FILE"
+fi
+if [[ -n ${FAKE_GS_RELEASE_FILE:-} ]]; then
+    barrier_attempts=${FAKE_GS_BARRIER_ATTEMPTS:-100}
+    if [[ ! $barrier_attempts =~ ^[1-9][0-9]*$ ]]; then
+        printf '%s\n' \
+            'fake-gs: FAKE_GS_BARRIER_ATTEMPTS must be a positive integer' >&2
+        exit 64
+    fi
+
+    barrier_attempt=0
+    while [[ ! -e $FAKE_GS_RELEASE_FILE ]]; do
+        if ((barrier_attempt >= barrier_attempts)); then
+            printf 'fake-gs: timed out waiting for release file: %s\n' \
+                "$FAKE_GS_RELEASE_FILE" >&2
+            exit 75
+        fi
+        sleep 0.1
+        ((barrier_attempt += 1))
+    done
+fi
+
 case ${FAKE_GS_MODE:-success} in
     success)
         printf '%s\n' '%PDF-1.7 fake output' >"$output_file"
