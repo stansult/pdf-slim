@@ -34,6 +34,7 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
 - Prefixes operational messages with local wall-clock time, with the local date
   shown before the first message and repeated after the last only when the run
   crosses midnight.
+- Reports resolved settings and major processing stages with `--verbose`.
 - Records successful replacement outcomes and skips only unchanged files with
   matching identity and processing settings.
 - Offers gentle, standard, and strong contrast cleanup for safely detected
@@ -55,6 +56,8 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
   metadata or choose the background used when flattening to JPEG.
 - Publishes outputs atomically and refuses symlinks, vector documents,
   animations, and multi-frame images.
+- Uses the same timestamp format as `pdf-slim.sh` and offers verbose settings,
+  batch progress, and processing-stage diagnostics.
 
 ## Usage
 
@@ -78,11 +81,15 @@ Exactly one output mode is required:
 --replace           Replace originals only when safe conversion is smaller
 ```
 
-Operational output from `pdf-slim.sh` uses local `[HH:MM:SS]` timestamps. A
-`[YYYY-MM-DD]` line appears before the first operational message; the ending
-date is printed only if it differs because the run crossed midnight. Help and
-version output remain undecorated. Real conversions report `processing:` before
-work begins, so the start and completion times are both visible.
+Primary operational messages from both commands use local `[HH:MM:SS]`
+timestamps. Continuation lines in a multiline explanation or external-tool
+diagnostic remain unprefixed. A `[YYYY-MM-DD]` line appears before the first
+operational message; the ending date is printed only if it differs because the
+run crossed midnight. Help and version output remain undecorated.
+`pdf-slim.sh` real conversions report `processing:` before work begins. Add
+`-v` or `--verbose` to either command to show resolved defaults, input counts,
+output decisions, and major processing stages; verbose diagnostics go to
+standard error.
 
 Quality selection has two mutually exclusive approaches:
 
@@ -118,6 +125,7 @@ Current options:
                       checks remain enabled (requires --replace)
   --timeout DURATION  Per-file conversion timeout (default: 1h)
   --dry-run           Print planned actions; run no Ghostscript and write nothing
+  -v, --verbose       Report resolved settings and processing stages
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
@@ -399,6 +407,18 @@ names without writing outputs:
 ```bash
 scan-clean.sh --input phone-photo.jpg --all-modes --dry-run
 ```
+
+Show resolved settings, batch position, cleanup stages, validation, and atomic
+publication details with `-v` or `--verbose`:
+
+```bash
+scan-clean.sh --verbose --input phone-photo.jpg \
+  --output phone-photo-cleaned.jpg
+```
+
+Verbose diagnostics are written to standard error. Normal results such as
+`created:` remain on standard output; both use the timestamp format described
+above.
 
 Image metadata is preserved when the output format supports it, including ICC,
 EXIF, capture date, GPS, and resolution. Orientation is applied to the pixels

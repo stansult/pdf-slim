@@ -67,7 +67,9 @@ output.
 and strong cleanup for single-frame raster images. It accepts one image, quoted
 glob, or nonrecursive directory; supports exact, automatic, and output-directory
 publication; preserves image metadata and transparency where supported; and
-provides atomic overwrite only through explicit `-O` / `--overwrite`.
+provides atomic overwrite only through explicit `-O` / `--overwrite`. Its
+operational output uses the same timestamp convention as `pdf-slim.sh`, and
+`-v` / `--verbose` reports resolved settings and processing stages.
 
 ## Standalone image-cleanup decisions
 
@@ -104,6 +106,11 @@ The user explicitly approved these choices for `scan-clean.sh`:
     expose `--timeout`, support `--dry-run`, preflight the batch, publish each
     output atomically, continue after per-image failures, and return status 1 if
     any conversion fails.
+13. Prefix operational output with local timestamps using the same date and
+    midnight-rollover behavior as `pdf-slim.sh`. Keep help and version output
+    undecorated. Timestamp only the primary line of a logical output group;
+    leave explanatory and external-tool continuation lines unprefixed. Support
+    `-v` / `--verbose`, with diagnostics on standard error.
 
 The standalone engine was committed first. The subsequent PDF integration keeps
 the public `--clean-scan [gentle|standard|strong]` interface, defaulting to
@@ -207,8 +214,12 @@ The user has approved these decisions:
 14. Prefix operational output with local `[HH:MM:SS]` wall-clock timestamps.
     Print `[YYYY-MM-DD]` before the first operational message and repeat the date
     after the last only when the run crosses midnight. Emit `processing:` before
-    each real conversion. Leave help, version, and blank separator lines
-    undecorated.
+    each real conversion. Timestamp only the primary line of a logical output
+    group; leave explanatory and external-tool continuation lines unprefixed.
+    Leave help, version, and blank separator lines undecorated.
+15. Support `-v` / `--verbose`. Send resolved settings, batch position, major
+    processing stages, size comparisons, and replacement-log decisions to
+    standard error without changing normal output or safety behavior.
 
 Implemented options:
 
@@ -223,6 +234,7 @@ Implemented options:
   disabling safety checks.
 - `--timeout DURATION` — per-file conversion timeout, default `1h`.
 - `--dry-run` — show planned files/actions without Ghostscript or writes.
+- `-v`, `--verbose` — report resolved settings and processing stages.
 - `--quality MODE` — accept `preserve`, `balanced`, or `small`.
 - `--max-dpi DPI` — detailed positive-integer color/grayscale DPI cap.
 - `--jpeg-recompress Q` — detailed JPEG encoding with Ghostscript QFactor

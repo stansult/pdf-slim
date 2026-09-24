@@ -54,9 +54,15 @@ for quality in preserve balanced small; do
 done
 
 exact_pdf=$test_dir/exact.pdf
-"$cli" --quality balanced -o "$exact_pdf" -i "$source_pdf" >/dev/null
+"$cli" -v --quality balanced -o "$exact_pdf" -i "$source_pdf" \
+    >"$test_dir/exact.out" 2>"$test_dir/exact.err"
 [[ -s $exact_pdf ]]
 gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$exact_pdf"
+grep -q 'verbose: PDF quality: balanced preset (explicit)' \
+    "$test_dir/exact.err"
+grep -q 'verbose: optimizing PDF with Ghostscript:' "$test_dir/exact.err"
+grep -q 'verbose: converted PDF validation passed:' "$test_dir/exact.err"
+grep -q 'verbose: publishing output atomically:' "$test_dir/exact.err"
 
 custom_pdf=$test_dir/custom.pdf
 "$cli" --max-dpi 275 --jpeg-recompress 0.20 --grayscale \

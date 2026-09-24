@@ -11,6 +11,7 @@ for test_script in \
     test-logging.sh \
     test-concurrent-logging.sh \
     test-timestamps.sh \
+    test-scan-clean-timestamps.sh \
     test-cli.sh \
     test-real-gs.sh \
     test-scan-cleanup.sh \

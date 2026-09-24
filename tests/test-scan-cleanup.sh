@@ -35,8 +35,23 @@ source_size=$(pdfinfo "$scan_pdf" | awk -F: \
 
 for cleanup_mode in gentle standard strong; do
     output_pdf=$test_dir/$cleanup_mode.pdf
-    "$project_dir/pdf-slim.sh" --input "$scan_pdf" --output "$output_pdf" \
-        --clean-scan "$cleanup_mode" --preserve-metadata none >/dev/null
+    if [[ $cleanup_mode == standard ]]; then
+        "$project_dir/pdf-slim.sh" -v --input "$scan_pdf" \
+            --output "$output_pdf" --clean-scan "$cleanup_mode" \
+            --preserve-metadata none >"$test_dir/standard.out" \
+            2>"$test_dir/standard.err"
+        grep -q 'verbose: inspecting PDF for safe image-only cleanup:' \
+            "$test_dir/standard.err"
+        grep -q 'verbose: rendering page 1 of 1:' "$test_dir/standard.err"
+        grep -q 'verbose: cleaning page 1 of 1 (standard):' \
+            "$test_dir/standard.err"
+        grep -q 'verbose: assembling 1 cleaned page(s):' \
+            "$test_dir/standard.err"
+    else
+        "$project_dir/pdf-slim.sh" --input "$scan_pdf" \
+            --output "$output_pdf" --clean-scan "$cleanup_mode" \
+            --preserve-metadata none >/dev/null
+    fi
     [[ -s $output_pdf ]]
     gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$output_pdf"
     output_size=$(pdfinfo "$output_pdf" | awk -F: \

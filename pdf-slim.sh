@@ -27,6 +27,7 @@ PROCESS_ARTIFACT=''
 OPERATIONAL_OUTPUT_STARTED=0
 OPERATIONAL_START_DATE=''
 OPERATIONAL_LAST_STREAM='stderr'
+VERBOSE=0
 
 usage() {
     cat <<EOF
@@ -73,6 +74,7 @@ Options:
                       checks remain enabled (requires --replace)
   --timeout DURATION  Per-file conversion timeout (default: 1h)
   --dry-run           Print planned actions; run no Ghostscript and write nothing
+  -v, --verbose       Report resolved settings and processing stages
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
@@ -87,8 +89,9 @@ Important:
   Exactly one output mode is required. --replace modifies an original only
   after successful validation and only when the result is smaller.
   Quote input glob patterns. Symlinks are skipped.
-  Operational messages are prefixed with local [HH:MM:SS]. The local date is
-  printed before the first message and again after the last only if it changed.
+  Primary operational messages are prefixed with local [HH:MM:SS]; continuation
+  lines remain unprefixed. The local date is printed before the first message
+  and again after the last only if it changed.
 
 Full documentation:
   https://github.com/stansult/pdf-slim
@@ -112,7 +115,7 @@ For a scanned image:
 Run '$PROGRAM --help' for full usage.
 EOF
 )
-    operational_block stderr "$text"
+    operational_continuation stderr "$text"
 }
 
 raw_output_line() {
@@ -141,7 +144,7 @@ begin_operational_output() {
 operational_block() {
     local stream=$1
     local text=$2
-    local line current_time
+    local line current_time timestamp_written=0
 
     begin_operational_output "$stream"
     while IFS= read -r line || [[ -n $line ]]; do
@@ -149,8 +152,28 @@ operational_block() {
             raw_output_line "$stream" ''
             continue
         fi
-        current_time=$(date '+%H:%M:%S') || current_time='??:??:??'
-        raw_output_line "$stream" "[$current_time] $line"
+        if (( ! timestamp_written )); then
+            current_time=$(date '+%H:%M:%S') || current_time='??:??:??'
+            raw_output_line "$stream" "[$current_time] $line"
+            timestamp_written=1
+        else
+            raw_output_line "$stream" "$line"
+        fi
+    done <<< "$text"
+}
+
+operational_continuation() {
+    local stream=$1
+    local text=$2
+    local line
+
+    if (( ! OPERATIONAL_OUTPUT_STARTED )); then
+        operational_block "$stream" "$text"
+        return
+    fi
+    OPERATIONAL_LAST_STREAM=$stream
+    while IFS= read -r line || [[ -n $line ]]; do
+        raw_output_line "$stream" "$line"
     done <<< "$text"
 }
 
@@ -180,7 +203,12 @@ warn() {
 }
 
 hint() {
-    operational_message stderr "$PROGRAM: hint: $*"
+    operational_continuation stderr "$PROGRAM: hint: $*"
+}
+
+verbose() {
+    (( VERBOSE )) || return 0
+    operational_message stderr "$PROGRAM: verbose: $*"
 }
 
 expand_input_pattern() (
@@ -771,7 +799,7 @@ run_scan_command() {
         error "$stage failed with status $status: $source"
     fi
     [[ -z $SCAN_COMMAND_OUTPUT ]] || \
-        operational_block stderr "$SCAN_COMMAND_OUTPUT"
+        operational_continuation stderr "$SCAN_COMMAND_OUTPUT"
     return 1
 }
 
@@ -953,15 +981,18 @@ clean_scan_pdf() {
     local output_x_dpi output_y_dpi
     local -a assembly_args=()
 
+    verbose "inspecting PDF for safe image-only cleanup: $source"
     inspect_scan_pdf "$source" "$scan_directory" "$timeout_command" \
         "$timeout_duration" "$gs_command" "$magick_command" \
         "$pdfinfo_command" "$pdfimages_command" "$pdftotext_command" \
         "$pdfdetach_command" || return 1
+    verbose "scan inspection accepted $SCAN_PAGE_COUNT page(s): $source"
     mkdir "$scan_directory/rendered" "$scan_directory/cleaned" || return 1
     page=1
     while (( page <= SCAN_PAGE_COUNT )); do
         rendered=$scan_directory/rendered/page-$page
         cleaned=$scan_directory/cleaned/page-$page.png
+        verbose "rendering page $page of $SCAN_PAGE_COUNT: $source"
         run_scan_command 'scan page rendering' "$source" "$timeout_command" \
             "$timeout_duration" "$pdftocairo_command" -png -singlefile \
             -f "$page" -l "$page" -rx "${SCAN_X_DPI[$page]}" \
@@ -970,6 +1001,7 @@ clean_scan_pdf() {
             error "scan renderer produced no page image (page $page): $source"
             return 1
         fi
+        verbose "cleaning page $page of $SCAN_PAGE_COUNT ($cleanup_mode): $source"
         run_scan_command 'scan contrast cleanup' "$source" "$timeout_command" \
             "$timeout_duration" "$scan_clean_command" \
             --input "$rendered.png" --output "$cleaned" \
@@ -1002,6 +1034,7 @@ clean_scan_pdf() {
         )
         ((page += 1))
     done
+    verbose "assembling $SCAN_PAGE_COUNT cleaned page(s): $source"
     run_scan_command 'cleaned PDF assembly' "$source" "$timeout_command" \
         "$timeout_duration" "$magick_command" "${assembly_args[@]}" \
         -compress Zip "$cleaned_pdf" || return 1
@@ -1025,6 +1058,7 @@ clean_image_to_pdf() {
     local output_x_dpi=$DEFAULT_IMAGE_INPUT_DPI
     local output_y_dpi=$DEFAULT_IMAGE_INPUT_DPI
 
+    verbose "inspecting image density: $source"
     run_scan_command 'image density inspection' "$source" "$timeout_command" \
         "$timeout_duration" "$magick_command" identify -quiet \
         -format '%x|%y|%[units]' "$source" || return 1
@@ -1048,7 +1082,9 @@ clean_image_to_pdf() {
         output_x_dpi=$DEFAULT_IMAGE_INPUT_DPI
         output_y_dpi=$DEFAULT_IMAGE_INPUT_DPI
     fi
+    verbose "PDF image density: ${output_x_dpi}x${output_y_dpi} DPI"
 
+    verbose "cleaning raster image ($cleanup_mode): $source"
     run_scan_command 'image scan cleanup' "$source" "$timeout_command" \
         "$timeout_duration" "$scan_clean_command" \
         --input "$source" --output "$cleaned_image" \
@@ -1058,6 +1094,7 @@ clean_image_to_pdf() {
         error "scan cleanup produced no valid image: $source"
         return 1
     fi
+    verbose "assembling cleaned image as PDF: $source"
     run_scan_command 'cleaned image PDF assembly' "$source" "$timeout_command" \
         "$timeout_duration" "$magick_command" -units PixelsPerInch \
         -density "${output_x_dpi}x${output_y_dpi}" "$cleaned_image" \
@@ -1210,7 +1247,7 @@ convert_pdf() {
             error "Ghostscript failed with status $status: $source"
         fi
         if [[ -n $output ]]; then
-            operational_block stderr "$output"
+            operational_continuation stderr "$output"
         fi
         remove_candidate "$candidate"
         return 1
@@ -1219,7 +1256,7 @@ convert_pdf() {
     if [[ ! -f $candidate || -L $candidate || ! -s $candidate ]]; then
         error "Ghostscript produced no valid nonempty PDF candidate: $source"
         if [[ -n $output ]]; then
-            operational_block stderr "$output"
+            operational_continuation stderr "$output"
         fi
         remove_candidate "$candidate"
         return 1
@@ -1475,6 +1512,7 @@ process_source() {
 
     PROCESS_OUTCOME=''
     PROCESS_ARTIFACT=''
+    verbose "destination: $destination"
 
     if [[ $mode == output ]]; then
         ensure_output_parent "$relative" || return 1
@@ -1553,12 +1591,14 @@ process_source() {
             return 1
         }
     fi
+    verbose "optimizing PDF with Ghostscript: $source"
     convert_pdf "$conversion_source" "$candidate" "$timeout_command" "$gs_command" \
         "$timeout_duration" "$grayscale" "$quality" "$max_dpi" \
         "$jpeg_recompress" || {
         clear_active_files
         return 1
     }
+    verbose "converted PDF validation passed: $source"
     remove_scan_directory "$scan_directory" || {
         clear_active_files
         return 1
@@ -1576,6 +1616,7 @@ process_source() {
         clear_active_files
         return 1
     }
+    verbose "metadata preservation complete ($metadata_mode): $source"
 
     if [[ $mode == replace ]]; then
         original_size=$(file_size "$source") || {
@@ -1588,6 +1629,7 @@ process_source() {
             clear_active_files
             return 1
         }
+        verbose "size comparison: source $original_size bytes; candidate $candidate_size bytes"
         if (( candidate_size >= original_size )); then
             operational_message stdout \
                 "kept original (converted file was not smaller): $source"
@@ -1611,12 +1653,14 @@ process_source() {
         fi
     fi
     if [[ $mode == replace ]]; then
+        verbose "publishing replacement atomically: $source"
         mv -- "$candidate" "$destination" || {
             error "could not publish converted PDF: $destination"
             clear_active_files
             return 1
         }
     else
+        verbose "publishing output atomically: $destination"
         mv -n -- "$candidate" "$destination" || {
             error "could not publish converted PDF: $destination"
             clear_active_files
@@ -1671,6 +1715,8 @@ main() {
     local discovery_failed=0
     local quality_explicit=0
     local detailed_quality=0
+    local clean_scan_mode_explicit=0
+    local metadata_mode_explicit=0
     local pattern_found=0
     local -a inputs=()
     local -a sources=()
@@ -1691,6 +1737,7 @@ main() {
     ACTIVE_METADATA_REFERENCE=''
     ACTIVE_SCAN_DIRECTORY=''
     ACTIVE_LOG_LOCK=''
+    VERBOSE=0
 
     if (( $# == 0 )); then
         error 'an output mode and at least one input are required'
@@ -1777,6 +1824,7 @@ main() {
                 shift
                 ;;
             --dry-run) dry_run=1 ;;
+            -v|--verbose) VERBOSE=1 ;;
             --quality)
                 if (( $# == 0 )); then
                     error '--quality requires a mode argument'
@@ -1812,6 +1860,7 @@ main() {
                 clean_scan=standard
                 if (( $# )) && [[ $1 != -* ]]; then
                     clean_scan=$1
+                    clean_scan_mode_explicit=1
                     shift
                 fi
                 ;;
@@ -1822,6 +1871,7 @@ main() {
                     break
                 fi
                 metadata_mode=$1
+                metadata_mode_explicit=1
                 shift
                 ;;
             -h|--help) usage; return 0 ;;
@@ -1836,7 +1886,7 @@ main() {
                 if (( ${#inputs[@]} )); then
                     hint 'the shell may have expanded an unquoted input pattern'
                     hint "quote patterns passed to --input, for example:"
-                    operational_message stderr \
+                    operational_continuation stderr \
                         "  $PROGRAM --input '../test/doc*.pdf' --output-dir output"
                 fi
                 parse_failed=1
@@ -2021,6 +2071,41 @@ main() {
         error 'could not determine the replacement processing policy'
         return 2
     }
+    verbose "discovered ${#sources[@]} input(s)"
+    case $mode in
+        file) verbose "output mode: exact file ($output_file)" ;;
+        output) verbose "output mode: directory ($output_dir)" ;;
+        replace) verbose 'output mode: replace if smaller' ;;
+    esac
+    if [[ -n $clean_scan ]]; then
+        if (( clean_scan_mode_explicit )); then
+            verbose "scan cleanup mode: $clean_scan (explicit)"
+        else
+            verbose "scan cleanup mode: $clean_scan (default)"
+        fi
+    else
+        verbose 'scan cleanup: disabled'
+    fi
+    if (( quality_explicit )); then
+        verbose "PDF quality: $quality preset (explicit)"
+    elif (( detailed_quality )); then
+        verbose "PDF quality: detailed (max DPI: ${max_dpi:-none}; JPEG QFactor: ${jpeg_recompress:-pass-through/default encoding})"
+    elif [[ -n $clean_scan ]]; then
+        verbose "PDF quality: scan-clean defaults (source DPI; JPEG QFactor $jpeg_recompress)"
+    else
+        verbose 'PDF quality: preserve (default)'
+    fi
+    if (( grayscale )); then
+        verbose 'grayscale: enabled'
+    else
+        verbose 'grayscale: disabled'
+    fi
+    if (( metadata_mode_explicit )); then
+        verbose "metadata: $metadata_mode (explicit)"
+    else
+        verbose "metadata: $metadata_mode (default)"
+    fi
+    verbose "timeout: $timeout_duration"
     if [[ $mode == replace ]]; then
         state_directory=$(replacement_state_directory) || return 2
         log_file=$state_directory/processed_pdfs.log
@@ -2103,6 +2188,7 @@ main() {
     trap 'exit 143' TERM
     i=0
     while (( i < ${#sources[@]} )); do
+        verbose "processing $((i + 1)) of ${#sources[@]}: ${sources[$i]}"
         operational_message stdout "processing: ${sources[$i]}"
         process_source "${sources[$i]}" "${relatives[$i]}" \
             "${destinations[$i]}" "${source_types[$i]}" || {
@@ -2115,9 +2201,13 @@ main() {
                 error "replacement completed without a log outcome: ${sources[$i]}"
                 failures=1
             else
-                append_replacement_log "$log_file" "${sources[$i]}" \
+                if append_replacement_log "$log_file" "${sources[$i]}" \
                     "$processing_policy" "$PROCESS_OUTCOME" \
-                    "$PROCESS_ARTIFACT" || failures=1
+                    "$PROCESS_ARTIFACT"; then
+                    verbose "recorded replacement outcome: $PROCESS_OUTCOME"
+                else
+                    failures=1
+                fi
             fi
         fi
         ((i += 1))

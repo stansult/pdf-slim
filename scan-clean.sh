@@ -11,6 +11,10 @@ DEFAULT_TIMEOUT='1h'
 DEFAULT_MODE='standard'
 DEFAULT_JPEG_QUALITY='95'
 DEFAULT_BACKGROUND='white'
+VERBOSE=0
+OPERATIONAL_OUTPUT_STARTED=0
+OPERATIONAL_START_DATE=''
+OPERATIONAL_LAST_STREAM='stderr'
 
 usage() {
     cat <<EOF
@@ -41,6 +45,7 @@ Image options:
 Other options:
   --timeout DURATION     Per-image command timeout (default: 1h)
   --dry-run              Inspect inputs and print actions without writing output
+  -v, --verbose          Report resolved settings and processing stages
   -h, --help             Show this help and exit
   --version              Show the version and exit
 
@@ -53,6 +58,9 @@ Important:
   The default cleanup mode is standard. Directory processing is nonrecursive.
   Symlinks, vector documents, animations, and multi-frame images are skipped
   or refused.
+  Primary operational messages use local timestamps; continuation lines remain
+  unprefixed. Add --verbose for resolved settings and processing stages; help
+  and version remain undecorated.
 
 Full documentation:
   https://github.com/stansult/pdf-slim
@@ -62,7 +70,9 @@ EOF
 }
 
 usage_hint() {
-    cat >&2 <<EOF
+    local text
+
+    text=$(cat <<EOF
 Choose how to write cleaned images:
 For one image:
   $PROGRAM --input scan.png -o scan-cleaned.jpg
@@ -73,14 +83,94 @@ For the current directory:
 
 Run '$PROGRAM --help' for full usage.
 EOF
+)
+    operational_continuation stderr "$text"
+}
+
+raw_output_line() {
+    local stream=$1
+    local line=$2
+
+    if [[ $stream == stdout ]]; then
+        printf '%s\n' "$line"
+    else
+        printf '%s\n' "$line" >&2
+    fi
+}
+
+begin_operational_output() {
+    local stream=$1
+
+    if (( ! OPERATIONAL_OUTPUT_STARTED )); then
+        OPERATIONAL_START_DATE=$(date '+%Y-%m-%d') || \
+            OPERATIONAL_START_DATE='unknown-date'
+        raw_output_line "$stream" "[$OPERATIONAL_START_DATE]"
+        OPERATIONAL_OUTPUT_STARTED=1
+    fi
+    OPERATIONAL_LAST_STREAM=$stream
+}
+
+operational_block() {
+    local stream=$1
+    local text=$2
+    local line current_time timestamp_written=0
+
+    begin_operational_output "$stream"
+    while IFS= read -r line || [[ -n $line ]]; do
+        if [[ -z $line ]]; then
+            raw_output_line "$stream" ''
+            continue
+        fi
+        if (( ! timestamp_written )); then
+            current_time=$(date '+%H:%M:%S') || current_time='??:??:??'
+            raw_output_line "$stream" "[$current_time] $line"
+            timestamp_written=1
+        else
+            raw_output_line "$stream" "$line"
+        fi
+    done <<< "$text"
+}
+
+operational_continuation() {
+    local stream=$1
+    local text=$2
+    local line
+
+    if (( ! OPERATIONAL_OUTPUT_STARTED )); then
+        operational_block "$stream" "$text"
+        return
+    fi
+    OPERATIONAL_LAST_STREAM=$stream
+    while IFS= read -r line || [[ -n $line ]]; do
+        raw_output_line "$stream" "$line"
+    done <<< "$text"
+}
+
+operational_message() {
+    operational_block "$1" "$2"
+}
+
+finish_operational_output() {
+    local end_date
+
+    (( OPERATIONAL_OUTPUT_STARTED )) || return 0
+    end_date=$(date '+%Y-%m-%d') || end_date=$OPERATIONAL_START_DATE
+    if [[ $end_date != "$OPERATIONAL_START_DATE" ]]; then
+        raw_output_line "$OPERATIONAL_LAST_STREAM" "[$end_date]"
+    fi
 }
 
 error() {
-    printf '%s: error: %s\n' "$PROGRAM" "$*" >&2
+    operational_message stderr "$PROGRAM: error: $*"
 }
 
 warn() {
-    printf '%s: warning: %s\n' "$PROGRAM" "$*" >&2
+    operational_message stderr "$PROGRAM: warning: $*"
+}
+
+verbose() {
+    (( VERBOSE )) || return 0
+    operational_message stderr "$PROGRAM: verbose: $*"
 }
 
 find_command() {
@@ -169,6 +259,7 @@ clear_active_temp_directories() {
 cleanup_on_exit() {
     local status=$?
     clear_active_temp_directories
+    finish_operational_output
     exit "$status"
 }
 
@@ -188,7 +279,7 @@ run_command() {
     else
         error "$stage failed with status $status: $source"
     fi
-    [[ -z $COMMAND_OUTPUT ]] || printf '%s\n' "$COMMAND_OUTPUT" >&2
+    [[ -z $COMMAND_OUTPUT ]] || operational_continuation stderr "$COMMAND_OUTPUT"
     return 1
 }
 
@@ -539,7 +630,14 @@ process_source() {
         error "could not inspect input before cleanup: $source"
         return 1
     }
+    verbose "input: $source (${source_formats[$source_index]}, ${source_widths[$source_index]}x${source_heights[$source_index]})"
+    verbose "inspecting document background: $source"
     detect_background_cast "$source" || return 1
+    if (( ${#NORMALIZATION_ARGS[@]} )); then
+        verbose 'background cast normalization: enabled'
+    else
+        verbose 'background cast normalization: not needed'
+    fi
     for selected_mode in "${selected_modes[@]}"; do
         case $selected_mode in
             gentle) destination=${gentle_destinations[$source_index]} ;;
@@ -567,6 +665,7 @@ process_source() {
             icc_profile=''
         fi
         levels=$(levels_for_mode "$selected_mode")
+        verbose "applying $selected_mode cleanup: $source -> $destination"
         image_args=(
             "$source"
             -auto-orient
@@ -593,6 +692,7 @@ process_source() {
             clear_active_temp_directories
             return 1
         }
+        verbose "validating cleaned image: $destination"
         validate_candidate "$candidate" "${source_widths[$source_index]}" \
             "${source_heights[$source_index]}" || {
             clear_active_temp_directories
@@ -622,6 +722,7 @@ process_source() {
     while (( i < ${#candidate_files[@]} )); do
         candidate=${candidate_files[$i]}
         destination=${candidate_destinations[$i]}
+        verbose "publishing output atomically: $destination"
         if (( overwrite )); then
             mv -- "$candidate" "$destination"
         else
@@ -634,9 +735,9 @@ process_source() {
             return 1
         fi
         if (( overwrite )); then
-            printf 'overwritten: %s\n' "$destination"
+            operational_message stdout "overwritten: $destination"
         else
-            printf 'created: %s\n' "$destination"
+            operational_message stdout "created: $destination"
         fi
         remove_temp_directory "${candidate_directories[$i]}" || true
         ((i += 1))
@@ -664,6 +765,7 @@ main() {
     local -a standard_destinations=()
     local -a strong_destinations=()
     ACTIVE_TEMP_DIRECTORIES=()
+    VERBOSE=0
 
     if (( $# == 0 )); then
         error '--input is required'
@@ -752,6 +854,7 @@ main() {
                 shift
                 ;;
             --dry-run) dry_run=1 ;;
+            -v|--verbose) VERBOSE=1 ;;
             -h|--help) usage; return 0 ;;
             --version) printf '%s %s\n' "$PROGRAM" "$VERSION"; return 0 ;;
             -*) error "unknown option: $arg"; parse_failed=1 ;;
@@ -805,8 +908,8 @@ main() {
         return 2
     fi
     if [[ -n $COMMAND_OUTPUT ]]; then
-        printf '%s\n' "$COMMAND_OUTPUT" >&2
         error "--background is not a valid ImageMagick color: $background"
+        operational_continuation stderr "$COMMAND_OUTPUT"
         return 2
     fi
 
@@ -902,6 +1005,22 @@ main() {
         prepare_output_directory "$output_dir" 0 0 || return 2
     fi
 
+    verbose "selected ${#sources[@]} image(s)"
+    if (( all_modes )); then
+        verbose 'cleanup modes: gentle, standard, strong (explicit all-modes)'
+    elif (( mode_explicit )); then
+        verbose "cleanup mode: $mode (explicit)"
+    else
+        verbose "cleanup mode: $mode (default)"
+    fi
+    verbose "JPEG quality: $jpeg_quality"
+    if (( strip_metadata )); then
+        verbose 'metadata: strip'
+    else
+        verbose 'metadata: preserve supported metadata'
+    fi
+    verbose "timeout: $timeout_duration"
+
     if (( dry_run )); then
         i=0
         while (( i < ${#sources[@]} )); do
@@ -909,9 +1028,11 @@ main() {
                 "${standard_destinations[$i]:-}" "${strong_destinations[$i]:-}"; do
                 [[ -n $destination ]] || continue
                 if (( overwrite )) && [[ -e $destination ]]; then
-                    printf 'would overwrite: %s -> %s\n' "${sources[$i]}" "$destination"
+                    operational_message stdout \
+                        "would overwrite: ${sources[$i]} -> $destination"
                 else
-                    printf 'would create: %s -> %s\n' "${sources[$i]}" "$destination"
+                    operational_message stdout \
+                        "would create: ${sources[$i]} -> $destination"
                 fi
             done
             ((i += 1))
@@ -928,6 +1049,7 @@ main() {
     trap 'exit 143' TERM
     i=0
     while (( i < ${#sources[@]} )); do
+        verbose "processing $((i + 1)) of ${#sources[@]}: ${sources[$i]}"
         process_source "$i" || failures=1
         ((i += 1))
     done
@@ -936,4 +1058,9 @@ main() {
     (( failures == 0 ))
 }
 
-main "$@"
+if [[ ${SCAN_CLEAN_TESTING:-0} != 1 ]]; then
+    main "$@"
+    main_status=$?
+    finish_operational_output
+    exit "$main_status"
+fi

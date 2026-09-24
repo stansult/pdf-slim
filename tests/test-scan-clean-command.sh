@@ -21,12 +21,18 @@ cmp "$test_dir/help-long.out" "$test_dir/help-short.out"
 grep -q -- '-i, --input PATH' "$test_dir/help-long.out"
 grep -q -- '-O, --overwrite' "$test_dir/help-long.out"
 grep -q -- '--all-modes' "$test_dir/help-long.out"
+grep -q -- '-v, --verbose' "$test_dir/help-long.out"
 grep -q -- 'standard (default)' "$test_dir/help-long.out"
 grep -q -- 'improves photographed and scanned document images' \
     "$test_dir/help-long.out"
 grep -q -- 'For PDF output, use pdf-slim.sh.' "$test_dir/help-long.out"
 grep -q -- '-i scan.png -o scan-cleaned.jpg' "$test_dir/help-long.out"
 grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
+if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
+    "$test_dir/help-long.out"; then
+    printf '%s\n' 'help output must not be timestamped' >&2
+    exit 1
+fi
 [[ $("$cli" --version) == 'scan-clean.sh 1.0.0' ]]
 
 if "$cli" >"$test_dir/no-input.out" 2>"$test_dir/no-input.err"; then
@@ -38,10 +44,15 @@ grep -q -- '--input scan.png -o scan-cleaned.jpg' "$test_dir/no-input.err"
 grep -q -- '--input scan.jpg --all-modes' "$test_dir/no-input.err"
 grep -q -- '--input \. --output-dir cleaned' "$test_dir/no-input.err"
 grep -q -- '--help' "$test_dir/no-input.err"
-awk 'NR == 1 { next } NR == 2 { exit !($0 == "") }' \
-    "$test_dir/no-input.err"
+sed -n '1p' "$test_dir/no-input.err" | \
+    grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$'
+sed -n '2p' "$test_dir/no-input.err" | \
+    grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] scan-clean[.]sh: error:'
+awk 'NR == 3 { exit !($0 == "") }' "$test_dir/no-input.err"
+[[ $(sed -n '4p' "$test_dir/no-input.err") == \
+    'Choose how to write cleaned images:' ]]
 awk '/For the current directory:/ { seen = 1; next }
-    seen && /^Run .*--help/ { exit !previous_blank }
+    seen && /Run .*--help/ { exit !previous_blank }
     { previous_blank = ($0 == "") }
     END { if (!seen) exit 1 }' "$test_dir/no-input.err"
 
@@ -67,6 +78,17 @@ grep -q "created: $default_output" "$test_dir/default.out"
     -o "$test_dir/stripped.jpg" >/dev/null
 [[ -z $("$real_magick" identify -quiet -format '%[comment]' \
     "$test_dir/stripped.jpg") ]]
+
+"$cli" -v -i "$test_dir/input/scan.jpg" \
+    -o "$test_dir/verbose-stage.jpg" \
+    >"$test_dir/verbose-stage.out" 2>"$test_dir/verbose-stage.err"
+grep -q 'verbose: inspecting document background:' \
+    "$test_dir/verbose-stage.err"
+grep -q 'verbose: applying standard cleanup:' "$test_dir/verbose-stage.err"
+grep -q 'verbose: validating cleaned image:' "$test_dir/verbose-stage.err"
+grep -q 'verbose: publishing output atomically:' \
+    "$test_dir/verbose-stage.err"
+grep -q 'created:' "$test_dir/verbose-stage.out"
 
 "$cli" -i "$test_dir/input/scan.jpg" >/dev/null
 [[ -s $test_dir/input/scan-2-standard.jpg ]]
@@ -109,8 +131,19 @@ grep -q 'skipping unsupported, multi-frame, or unreadable image:' \
 mkdir "$test_dir/glob-output"
 "$cli" -i "$test_dir/input/*.*" --output-dir "$test_dir/glob-output" \
     --dry-run >"$test_dir/glob.out" 2>"$test_dir/glob.err"
-grep -q '^would create:' "$test_dir/glob.out"
+grep -q 'would create:' "$test_dir/glob.out"
 [[ ! -e $test_dir/glob-output/scan-standard.jpg ]]
+
+verbose_output=$test_dir/verbose.jpg
+"$cli" -v -i "$test_dir/input/scan.jpg" -o "$verbose_output" --dry-run \
+    >"$test_dir/verbose.out" 2>"$test_dir/verbose.err"
+grep -q 'verbose: selected 1 image(s)' "$test_dir/verbose.err"
+grep -q 'verbose: cleanup mode: standard (default)' "$test_dir/verbose.err"
+grep -q 'verbose: JPEG quality: 95' "$test_dir/verbose.err"
+grep -q 'verbose: metadata: preserve supported metadata' \
+    "$test_dir/verbose.err"
+grep -q 'would create:' "$test_dir/verbose.out"
+[[ ! -e $verbose_output ]]
 
 mkdir "$test_dir/symlink-target"
 ln -s "$test_dir/symlink-target" "$test_dir/symlink-component"

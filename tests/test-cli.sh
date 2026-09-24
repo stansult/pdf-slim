@@ -31,6 +31,7 @@ grep -q -- 'Do not combine --quality' "$test_dir/help-long.out"
 grep -q -- '--clean-scan \[MODE\]' "$test_dir/help-long.out"
 grep -q -- 'gentle, standard, or' "$test_dir/help-long.out"
 grep -q -- 'default mode: standard' "$test_dir/help-long.out"
+grep -q -- '-v, --verbose' "$test_dir/help-long.out"
 grep -q -- 'safely reduces PDF file sizes' "$test_dir/help-long.out"
 grep -q -- 'For image output, use scan-clean.sh.' "$test_dir/help-long.out"
 grep -q -- '-i scan.jpg -o scan-cleaned.pdf --clean-scan standard' \
@@ -56,6 +57,8 @@ sed -n '1p' "$test_dir/no-args.err" | \
 sed -n '2p' "$test_dir/no-args.err" | \
     grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] pdf-slim\.sh: error:'
 awk 'NR == 3 { exit !($0 == "") }' "$test_dir/no-args.err"
+[[ $(sed -n '4p' "$test_dir/no-args.err") == \
+    'Choose how to handle converted PDFs. For the current directory:' ]]
 awk '/For a scanned image:/ { seen = 1; next }
     seen && /Run .*--help/ { exit !previous_blank }
     { previous_blank = ($0 == "") }
@@ -292,6 +295,17 @@ PATH="$test_path" "$cli" --dry-run -i "$test_dir/input/one.pdf" \
 grep -q 'would clean scan (standard):' "$test_dir/default-clean.out"
 [[ ! -s $test_dir/default-clean.err ]]
 [[ ! -e $default_clean_output ]]
+verbose_output=$test_dir/verbose-output.pdf
+PATH="$test_path" "$cli" --dry-run -v -i "$test_dir/input/one.pdf" \
+    --clean-scan -o "$verbose_output" \
+    >"$test_dir/verbose.out" 2>"$test_dir/verbose.err"
+grep -q 'verbose: discovered 1 input(s)' "$test_dir/verbose.err"
+grep -q 'verbose: scan cleanup mode: standard (default)' \
+    "$test_dir/verbose.err"
+grep -q 'verbose: PDF quality: scan-clean defaults' "$test_dir/verbose.err"
+grep -q 'verbose: metadata: standard (default)' "$test_dir/verbose.err"
+grep -q 'would clean scan (standard):' "$test_dir/verbose.out"
+[[ ! -e $verbose_output ]]
 PATH="$test_path" "$cli" --dry-run --replace \
     -i "$test_dir/input/one.pdf" --clean-scan \
     >"$test_dir/default-clean-last.out"
