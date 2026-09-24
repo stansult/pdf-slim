@@ -28,8 +28,9 @@ grep -q -- 'Quality -- choose one approach:' "$test_dir/help-long.out"
 grep -q -- '--max-dpi DPI' "$test_dir/help-long.out"
 grep -q -- '--jpeg-recompress Q' "$test_dir/help-long.out"
 grep -q -- 'Do not combine --quality' "$test_dir/help-long.out"
-grep -q -- '--clean-scan MODE' "$test_dir/help-long.out"
+grep -q -- '--clean-scan \[MODE\]' "$test_dir/help-long.out"
 grep -q -- 'gentle, standard, or' "$test_dir/help-long.out"
+grep -q -- 'default mode: standard' "$test_dir/help-long.out"
 grep -q -- 'safely reduces PDF file sizes' "$test_dir/help-long.out"
 grep -q -- 'For image output, use scan-clean.sh.' "$test_dir/help-long.out"
 grep -q -- '-i scan.jpg -o scan-cleaned.pdf --clean-scan standard' \
@@ -277,10 +278,24 @@ if PATH="$test_path" "$cli" --quality balanced --max-dpi 275 --replace \
 fi
 grep -q 'choose one quality approach' "$test_dir/quality-conflict.err"
 if PATH="$test_path" "$cli" --clean-scan extreme --replace \
-    -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+    -i "$test_dir/input/one.pdf" >"$test_dir/invalid-clean.out" \
+    2>"$test_dir/invalid-clean.err"; then
     printf '%s\n' 'expected unknown scan cleanup mode to fail' >&2
     exit 1
 fi
+grep -q 'unsupported scan cleanup mode: extreme' \
+    "$test_dir/invalid-clean.err"
+default_clean_output=$test_dir/default-clean.pdf
+PATH="$test_path" "$cli" --dry-run -i "$test_dir/input/one.pdf" \
+    --clean-scan -o "$default_clean_output" \
+    >"$test_dir/default-clean.out" 2>"$test_dir/default-clean.err"
+grep -q 'would clean scan (standard):' "$test_dir/default-clean.out"
+[[ ! -s $test_dir/default-clean.err ]]
+[[ ! -e $default_clean_output ]]
+PATH="$test_path" "$cli" --dry-run --replace \
+    -i "$test_dir/input/one.pdf" --clean-scan \
+    >"$test_dir/default-clean-last.out"
+grep -q 'would clean scan (standard):' "$test_dir/default-clean-last.out"
 PATH="$test_path" "$cli" --dry-run --clean-scan standard --replace \
     -i "$test_dir/input/one.pdf" >"$test_dir/clean-dry.out"
 grep -q 'would clean scan (standard):' "$test_dir/clean-dry.out"

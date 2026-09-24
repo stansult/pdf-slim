@@ -61,10 +61,11 @@ Quality -- choose one approach:
 Do not combine --quality with --max-dpi or --jpeg-recompress.
 
 Scan cleanup:
-  --clean-scan MODE      Improve an image-only scan using gentle, standard, or
+  --clean-scan [MODE]    Improve an image-only scan using gentle, standard, or
                          strong contrast cleanup while retaining color
-                         (default with no quality options: source DPI and JPEG
-                         QFactor 0.10; --grayscale remains independent)
+                         (default mode: standard; with no quality options:
+                         source DPI and JPEG QFactor 0.10; --grayscale remains
+                         independent)
 
 Options:
   --recursive         Descend into supplied directories
@@ -1808,13 +1809,11 @@ main() {
                 ;;
             --grayscale) grayscale=1 ;;
             --clean-scan)
-                if (( $# == 0 )); then
-                    error '--clean-scan requires a mode argument'
-                    parse_failed=1
-                    break
+                clean_scan=standard
+                if (( $# )) && [[ $1 != -* ]]; then
+                    clean_scan=$1
+                    shift
                 fi
-                clean_scan=$1
-                shift
                 ;;
             --preserve-metadata)
                 if (( $# == 0 )); then

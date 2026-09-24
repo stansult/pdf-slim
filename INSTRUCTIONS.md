@@ -106,9 +106,10 @@ The user explicitly approved these choices for `scan-clean.sh`:
     any conversion fails.
 
 The standalone engine was committed first. The subsequent PDF integration keeps
-the public `--clean-scan gentle|standard|strong` interface and all PDF-specific
-inspection, rendering, assembly, metadata, quality, grayscale, publication,
-replacement, and logging behavior. Each rendered lossless PNG page is passed to
+the public `--clean-scan [gentle|standard|strong]` interface, defaulting to
+`standard` when the optional mode is omitted, and all PDF-specific inspection,
+rendering, assembly, metadata, quality, grayscale, publication, replacement,
+and logging behavior. Each rendered lossless PNG page is passed to
 `scan-clean.sh` with the selected mode, the PDF timeout, an exact PNG output,
 and `--strip-metadata`; final PDF metadata remains the responsibility of
 `pdf-slim.sh`.
@@ -196,8 +197,9 @@ The user has approved these decisions:
     literal path when its filename contains glob metacharacters, reject
     no-match patterns, and reject accidental unquoted multi-match expansion
     before conversion or writes with a quoting hint.
-13. Allow `--clean-scan gentle|standard|strong` for safely detected image-only
-    scans. Preserve page dimensions, source resolution, and color by default.
+13. Allow `--clean-scan [gentle|standard|strong]` for safely detected image-only
+    scans, defaulting to `standard` when the mode is omitted. Preserve page
+    dimensions, source resolution, and color by default.
     With no quality arguments, re-encode changed pixels at `QFactor 0.10`;
     explicit quality controls override cleanup defaults, and `--grayscale`
     remains independent. Refuse inputs whose detectable non-image content would
@@ -226,8 +228,8 @@ Implemented options:
 - `--jpeg-recompress Q` — detailed JPEG encoding with Ghostscript QFactor
   `0.0` through `1.0`.
 - `--grayscale` — explicit and independent of quality mode.
-- `--clean-scan MODE` — explicit gentle, standard, or strong image-only scan
-  contrast cleanup.
+- `--clean-scan [MODE]` — gentle, standard, or strong image-only scan contrast
+  cleanup; omit the mode to use standard.
 - `--help` — document usage, defaults, behavior, and statuses.
 - `--version` — add once useful; a development version is acceptable early.
 

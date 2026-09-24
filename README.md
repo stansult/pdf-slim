@@ -103,10 +103,11 @@ Quality -- choose one approach:
 Do not combine --quality with --max-dpi or --jpeg-recompress.
 
 Scan cleanup:
-  --clean-scan MODE      Improve an image-only scan using gentle, standard, or
+  --clean-scan [MODE]    Improve an image-only scan using gentle, standard, or
                          strong contrast cleanup while retaining color
-                         (default with no quality options: source DPI and JPEG
-                         QFactor 0.10; --grayscale remains independent)
+                         (default mode: standard; with no quality options:
+                         source DPI and JPEG QFactor 0.10; --grayscale remains
+                         independent)
 ```
 
 Current options:
@@ -247,12 +248,13 @@ With no quality options, cleanup uses the high-quality JPEG default
 
 ```bash
 pdf-slim.sh --input employment-form-scan.pdf \
-  --output employment-form-cleaned.pdf --clean-scan standard
+  --output employment-form-cleaned.pdf --clean-scan
 ```
 
-The selected cleanup strength is passed directly to `scan-clean.sh`. PDF pages
-are rendered to temporary lossless PNG images, cleaned by the shared engine,
-and reassembled before the existing PDF quality and optional grayscale stages.
+When the mode is omitted, `--clean-scan` uses `standard`. An explicit cleanup
+strength is passed directly to `scan-clean.sh`. PDF pages are rendered to
+temporary lossless PNG images, cleaned by the shared engine, and reassembled
+before the existing PDF quality and optional grayscale stages.
 
 Clean a JPG and create a PDF in one command:
 
