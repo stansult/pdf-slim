@@ -7,6 +7,7 @@ test_dir=$(cd "$(dirname "$0")" && pwd)
 
 for test_script in \
     test-conversion.sh \
+    test-fingerprints.sh \
     test-publication.sh \
     test-logging.sh \
     test-concurrent-logging.sh \
@@ -14,6 +15,7 @@ for test_script in \
     test-scan-clean-timestamps.sh \
     test-cli.sh \
     test-real-gs.sh \
+    test-scan-inspection.sh \
     test-scan-cleanup.sh \
     test-scan-clean-delegation.sh \
     test-image-to-pdf.sh \

@@ -39,6 +39,7 @@ commands themselves:
 - Poppler commands used by PDF scan cleanup: `pdfinfo`, `pdfimages`,
   `pdftotext`, `pdfdetach`, and `pdftocairo`.
 - GNU `timeout`, available as either `timeout` or `gtimeout`.
+- One SHA-256 provider: `shasum`, `sha256sum`, or `openssl`.
 - `realpath` and the standard macOS command-line tools.
 - ShellCheck for the separate lint command above.
 
@@ -51,25 +52,30 @@ macOS when `xattr` is available.
 | Test | Coverage |
 | --- | --- |
 | `test-conversion.sh` | Ghostscript argument construction for presets, detailed DPI/JPEG settings, and grayscale; successful output; nonzero, partial, empty, and timed-out conversion failures; candidate cleanup. |
-| `test-publication.sh` | Exact-file, output-directory, and replacement publication; smaller-only replacement; permissions and timestamps; macOS extended metadata and ACLs; interruption cleanup; destination-created-during-conversion races. |
+| `test-fingerprints.sh` | SHA-256 provider selection through `shasum`, `sha256sum`, and `openssl`, plus clear failure when no provider exists, for both commands. |
+| `test-publication.sh` | Exact-file, output-directory, and replacement publication; smaller-only replacement; metadata-only `ctime` tolerance with SHA-256 verification; same-size content-change rejection with restored modification time; final replacement checkpoint and metadata refresh; permissions and timestamps; macOS extended metadata and ACLs; interruption cleanup; destination-created-during-conversion races. |
 | `test-logging.sh` | Version-2 replacement records and permissions; identity and processing-policy matching; `--reprocess`; successful and kept-not-smaller outcomes; failed-attempt exclusion; malformed/incomplete log refusal; version-1 migration and relocation. |
 | `test-concurrent-logging.sh` | Independent READY/RELEASE fixture validation; bounded barrier failure; simultaneous creation of a new log; simultaneous appends to an existing log; complete unique records, permissions, and lock cleanup. |
 | `test-timestamps.sh` | PDF-command date and time prefixes, same-day completion, midnight rollover, unprefixed multiline continuations, and verbose-message gating. |
 | `test-scan-clean-timestamps.sh` | Standalone cleanup date and time prefixes, same-day completion, midnight rollover, unprefixed multiline continuations, and verbose-message gating. |
 | `test-cli.sh` | Help, version, parameterless guidance, option validation, quoted globs, unusual filenames, dry runs, recursive and nonrecursive traversal, symlink refusal, output conflicts and collisions, quality controls, default scan-clean mode, verbose CLI reporting, and exact-file publication. |
 | `test-real-gs.sh` | Real Ghostscript output for all three quality presets in color and grayscale, detailed quality controls, verbose conversion stages, exact output, and smaller-file replacement; every result is parsed again by Ghostscript. |
+| `test-scan-inspection.sh` | Focused PDF scan-cleanup refusal guards for invalid page counts, encryption, forms, JavaScript, geometry, text, attachments, links, named destinations, image type/count/DPI, and residual vector content. |
 | `test-scan-cleanup.sh` | Real PDF scan cleanup at gentle, standard, and strong strengths; verbose page stages; page-size preservation; detailed and lossless quality paths; grayscale multipage output; refusal of visible vector/text content; mixed-batch behavior. |
 | `test-scan-clean-delegation.sh` | Discovery of the sibling or `PATH` cleanup engine; delegated mode, timeout, input/output, and metadata arguments; engine failure and timeout propagation; temporary-directory cleanup; missing dependency refusal. |
 | `test-image-to-pdf.sh` | Raster-image-to-PDF cleanup; physical sizing from credible or fallback density; detailed quality and grayscale; batch and recursive mapping; destination collisions; animated-image refusal; replacement prohibition. |
-| `test-scan-clean-command.sh` | Standalone image cleanup help and validation; default and all-mode naming; verbose CLI reporting; overwrite behavior; metadata, transparency, background, density, and JPEG quality; directory/glob filtering; output safety; partial failure, timeout, and temporary cleanup. |
+| `test-scan-clean-command.sh` | Standalone image cleanup help and validation; default and all-mode naming; verbose CLI reporting; overwrite behavior; metadata, transparency, background, density, and JPEG quality; directory/glob filtering; metadata-only source churn and real source-change detection; publication races; signal, partial-failure, timeout, and temporary cleanup. |
 
 ## Test doubles
 
 - `fake-gs.sh` simulates successful, failed, partial, empty, and slow
-  Ghostscript runs. Its optional bounded READY/RELEASE barrier makes concurrent
-  tests deterministic.
+  Ghostscript runs, plus metadata-only and same-size source changes. Its
+  optional bounded READY/RELEASE barrier makes concurrent tests deterministic.
 - `fake-magick.sh` delegates ordinary work to the real ImageMagick command and
-  can simulate partial failure or delay.
+  can simulate partial failure or delay. Its bounded READY/RELEASE barrier makes
+  source-change, publication-race, and signal tests deterministic.
+- `fake-scan-inspector.sh` supplies intentional PDF-inspection results so each
+  destructive-flattening refusal can be tested independently.
 - `fake-scan-clean.sh` records delegated arguments and can simulate cleanup
   failure or delay.
 

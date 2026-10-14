@@ -3,12 +3,20 @@
 set -o nounset
 
 output_file=''
+source_file=''
+expect_source=0
 if [[ -n ${FAKE_GS_ARGS_FILE:-} ]]; then
     printf '%s\n' "$@" >"$FAKE_GS_ARGS_FILE"
 fi
 for argument in "$@"; do
+    if (( expect_source )); then
+        source_file=$argument
+        expect_source=0
+        continue
+    fi
     case $argument in
         -sOutputFile=*) output_file=${argument#-sOutputFile=} ;;
+        -f) expect_source=1 ;;
     esac
 done
 
@@ -16,6 +24,36 @@ if [[ -z $output_file ]]; then
     printf '%s\n' 'fake-gs: missing output path' >&2
     exit 64
 fi
+
+case ${FAKE_GS_SOURCE_CHANGE:-none} in
+    none) ;;
+    metadata-only)
+        [[ -n $source_file ]] || {
+            printf '%s\n' 'fake-gs: missing source path for metadata change' >&2
+            exit 64
+        }
+        source_mode=$(stat -f '%Lp' -- "$source_file" 2>/dev/null || \
+            stat -c '%a' -- "$source_file") || exit 64
+        sleep 1.1
+        chmod u+x "$source_file" || exit 64
+        chmod "$source_mode" "$source_file" || exit 64
+        ;;
+    content-preserve-stat)
+        [[ -n $source_file && -n ${FAKE_GS_MTIME_REFERENCE:-} ]] || {
+            printf '%s\n' \
+                'fake-gs: source and mtime reference are required for content change' >&2
+            exit 64
+        }
+        sleep 1.1
+        printf 'X' | dd of="$source_file" bs=1 count=1 conv=notrunc 2>/dev/null
+        touch -r "$FAKE_GS_MTIME_REFERENCE" "$source_file"
+        ;;
+    *)
+        printf 'fake-gs: unknown source change: %s\n' \
+            "$FAKE_GS_SOURCE_CHANGE" >&2
+        exit 64
+        ;;
+esac
 
 # Optional deterministic barrier for concurrency tests. Signal readiness only
 # after the output path has been parsed, then wait a bounded time for release.

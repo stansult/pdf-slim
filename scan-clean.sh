@@ -6,7 +6,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.0.0'
+VERSION='1.0.1'
 DEFAULT_TIMEOUT='1h'
 DEFAULT_MODE='standard'
 DEFAULT_JPEG_QUALITY='95'
@@ -219,6 +219,51 @@ absolute_path() {
 file_identity() {
     stat -f '%d:%i:%z:%m:%c' -- "$1" 2>/dev/null || \
         stat -c '%d:%i:%s:%Y:%Z' -- "$1"
+}
+
+file_fingerprint() {
+    local output fingerprint
+
+    if command -v shasum >/dev/null 2>&1; then
+        output=$(shasum -a 256 <"$1") || return 1
+    elif command -v sha256sum >/dev/null 2>&1; then
+        output=$(sha256sum <"$1") || return 1
+    elif command -v openssl >/dev/null 2>&1; then
+        output=$(openssl dgst -sha256 -r <"$1") || return 1
+    else
+        return 1
+    fi
+    fingerprint=${output%% *}
+    [[ $fingerprint =~ ^[0-9A-Fa-f]{64}$ ]] || return 1
+    printf '%s\n' "$fingerprint"
+}
+
+verify_source_unchanged() {
+    local source=$1
+    local expected_identity=$2
+    local expected_content_identity=$3
+    local expected_fingerprint=$4
+    local current_identity current_content_identity current_fingerprint
+
+    current_identity=$(file_identity "$source") || current_identity='missing'
+    if [[ $current_identity == "$expected_identity" ]]; then
+        return 0
+    fi
+    current_content_identity=${current_identity%:*}
+    if [[ $current_identity == missing || \
+        $current_content_identity != "$expected_content_identity" ]]; then
+        error "input changed during cleanup; leaving outputs unpublished: $source"
+        return 1
+    fi
+    current_fingerprint=$(file_fingerprint "$source") || {
+        error "could not verify input content after cleanup: $source"
+        return 1
+    }
+    if [[ $current_fingerprint != "$expected_fingerprint" ]]; then
+        error "input changed during cleanup; leaving outputs unpublished: $source"
+        return 1
+    fi
+    verbose "input metadata changed during cleanup; SHA-256 content is unchanged: $source"
 }
 
 expand_input_pattern() (
@@ -607,7 +652,8 @@ validate_candidate() {
 process_source() {
     local source_index=$1
     local source=${sources[$source_index]}
-    local source_before source_after selected_mode destination parent temp_directory
+    local source_before source_content_before source_fingerprint
+    local selected_mode destination parent temp_directory
     local candidate levels icc_profile=''
     local -a selected_modes=()
     local -a candidate_files=()
@@ -626,10 +672,15 @@ process_source() {
         selected_modes[${#selected_modes[@]}]=strong
     fi
 
+    source_fingerprint=$(file_fingerprint "$source") || {
+        error "could not fingerprint input before cleanup: $source"
+        return 1
+    }
     source_before=$(file_identity "$source") || {
         error "could not inspect input before cleanup: $source"
         return 1
     }
+    source_content_before=${source_before%:*}
     verbose "input: $source (${source_formats[$source_index]}, ${source_widths[$source_index]}x${source_heights[$source_index]})"
     verbose "inspecting document background: $source"
     detect_background_cast "$source" || return 1
@@ -703,9 +754,8 @@ process_source() {
         candidate_directories[${#candidate_directories[@]}]=$temp_directory
     done
 
-    source_after=$(file_identity "$source") || source_after='missing'
-    if [[ $source_before != "$source_after" ]]; then
-        error "input changed during cleanup; leaving outputs unpublished: $source"
+    if ! verify_source_unchanged "$source" "$source_before" \
+        "$source_content_before" "$source_fingerprint"; then
         clear_active_temp_directories
         return 1
     fi

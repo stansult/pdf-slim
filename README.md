@@ -9,7 +9,7 @@ directly to raster images.
 Use `pdf-slim.sh` when the output should be a PDF. Use `scan-clean.sh` when the
 output should remain an image.
 
-Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
+Current versions: `pdf-slim.sh` 1.2.1 and `scan-clean.sh` 1.0.1.
 
 ## Current capabilities
 
@@ -29,6 +29,8 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
   input.
 - Preserves paths relative to each supplied directory in output mode.
 - Refuses existing output files and collisions between supplied roots.
+- Distinguishes harmless filesystem-metadata activity from source-content
+  changes by confirming unchanged bytes with SHA-256 when only `ctime` moves.
 - Plans operations without running Ghostscript or writing output when using
   `--dry-run`.
 - Prefixes operational messages with local wall-clock time, with the local date
@@ -56,6 +58,8 @@ Current versions: `pdf-slim.sh` 1.2.0 and `scan-clean.sh` 1.0.0.
   metadata or choose the background used when flattening to JPEG.
 - Publishes outputs atomically and refuses symlinks, vector documents,
   animations, and multi-frame images.
+- Verifies that source image bytes remain unchanged before publishing, while
+  tolerating metadata-only filesystem activity after a SHA-256 check.
 - Uses the same timestamp format as `pdf-slim.sh` and offers verbose settings,
   batch progress, and processing-stage diagnostics.
 
@@ -432,6 +436,13 @@ is strictly smaller. It never removes the original first. Exact-file and
 output-directory modes never silently overwrite a destination or publish a
 partial conversion.
 
+Both commands check the source again after conversion. Changes to its device,
+inode, size, or modification time stop publication immediately. A `ctime`-only
+change can be caused by Dropbox File Provider or other macOS metadata activity,
+so it is accepted only when a SHA-256 comparison confirms that the bytes are
+still identical. Actual content changes remain failures even if their size and
+modification time were preserved.
+
 Scan cleanup intentionally rebuilds pixels, so it first verifies that every
 page is an image-only scan. It refuses encrypted PDFs and detectable searchable
 text, forms, JavaScript, attachments, links, named destinations, visible vector
@@ -557,9 +568,10 @@ done
 ## Requirements
 
 Both commands use Bash, GNU `timeout` (available as `timeout` or `gtimeout`),
-`find`, and `realpath`. `scan-clean.sh` requires ImageMagick (`magick`).
-`pdf-slim.sh` requires Ghostscript. Its `--clean-scan` feature also requires the
-companion `scan-clean.sh` and ImageMagick. Cleaning PDF input additionally uses
+`find`, `realpath`, and one SHA-256 provider: `shasum`, `sha256sum`, or
+`openssl`. `scan-clean.sh` requires ImageMagick (`magick`). `pdf-slim.sh`
+requires Ghostscript. Its `--clean-scan` feature also requires the companion
+`scan-clean.sh` and ImageMagick. Cleaning PDF input additionally uses
 Poppler (`pdfinfo`, `pdfimages`, `pdftotext`, `pdfdetach`, and `pdftocairo`);
 direct raster-image to PDF cleanup does not. `pdf-slim.sh` prefers an executable
 `scan-clean.sh` beside itself, then searches `PATH`. Optional commands are
@@ -606,12 +618,14 @@ tests/                       Automated conversion, publication, logging, and CLI
 
 ## Release status
 
-`pdf-slim.sh` version 1.2.0 delegates guarded PDF scan pixel cleanup to the
+`pdf-slim.sh` version 1.2.1 delegates guarded PDF scan pixel cleanup to the
 companion `scan-clean.sh` engine while retaining PDF-specific inspection,
 metadata, quality, publication, replacement, and logging safeguards.
 It also accepts raster scans directly and creates cleaned PDFs through the same
-engine and PDF quality pipeline.
-`scan-clean.sh` version 1.0.0 applies the shared adaptive cleanup directly to
-single-frame raster images with safe standalone and batch publication. Future
-changes should remain backward-compatible or be released as a new major
-version.
+engine and PDF quality pipeline. Version 1.2.1 tolerates metadata-only `ctime`
+changes after verifying source bytes with SHA-256, avoiding false failures in
+cloud-synchronized folders without weakening content-change detection.
+`scan-clean.sh` version 1.0.1 applies the shared adaptive cleanup directly to
+single-frame raster images with safe standalone and batch publication, and now
+uses the same content-aware source-change protection as `pdf-slim.sh`. Future
+changes should remain backward-compatible or be released as a new major version.

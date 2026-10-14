@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.2.0'
+VERSION='1.2.1'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -28,6 +28,8 @@ OPERATIONAL_OUTPUT_STARTED=0
 OPERATIONAL_START_DATE=''
 OPERATIONAL_LAST_STREAM='stderr'
 VERBOSE=0
+SOURCE_CHECK_IDENTITY=''
+SOURCE_CHECK_METADATA_CHANGED=0
 
 usage() {
     cat <<EOF
@@ -271,6 +273,57 @@ file_size() {
 file_identity() {
     stat -f '%d:%i:%z:%m:%c' -- "$1" 2>/dev/null || \
         stat -c '%d:%i:%s:%Y:%Z' -- "$1"
+}
+
+file_fingerprint() {
+    local output fingerprint
+
+    if command -v shasum >/dev/null 2>&1; then
+        output=$(shasum -a 256 <"$1") || return 1
+    elif command -v sha256sum >/dev/null 2>&1; then
+        output=$(sha256sum <"$1") || return 1
+    elif command -v openssl >/dev/null 2>&1; then
+        output=$(openssl dgst -sha256 -r <"$1") || return 1
+    else
+        return 1
+    fi
+    fingerprint=${output%% *}
+    [[ $fingerprint =~ ^[0-9A-Fa-f]{64}$ ]] || return 1
+    printf '%s\n' "$fingerprint"
+}
+
+verify_source_unchanged() {
+    local source=$1
+    local expected_identity=$2
+    local expected_content_identity=$3
+    local expected_fingerprint=$4
+    local timing=$5
+    local current_identity current_content_identity current_fingerprint
+
+    SOURCE_CHECK_IDENTITY=''
+    SOURCE_CHECK_METADATA_CHANGED=0
+    current_identity=$(file_identity "$source") || current_identity='missing'
+    if [[ $current_identity == "$expected_identity" ]]; then
+        SOURCE_CHECK_IDENTITY=$current_identity
+        return 0
+    fi
+    current_content_identity=${current_identity%:*}
+    if [[ $current_identity == missing || \
+        $current_content_identity != "$expected_content_identity" ]]; then
+        error "source changed $timing; leaving it untouched: $source"
+        return 1
+    fi
+    current_fingerprint=$(file_fingerprint "$source") || {
+        error "could not verify source content $timing: $source"
+        return 1
+    }
+    if [[ $current_fingerprint != "$expected_fingerprint" ]]; then
+        error "source changed $timing; leaving it untouched: $source"
+        return 1
+    fi
+    SOURCE_CHECK_IDENTITY=$current_identity
+    SOURCE_CHECK_METADATA_CHANGED=1
+    verbose "source metadata changed $timing; SHA-256 content is unchanged: $source"
 }
 
 file_times() {
@@ -1506,6 +1559,7 @@ process_source() {
     local destination=$3
     local source_type=${4:-pdf}
     local candidate='' candidate_dir source_before source_after
+    local source_content_before source_fingerprint
     local timestamp_reference=''
     local scan_directory='' conversion_source=$source
     local original_size candidate_size
@@ -1555,11 +1609,17 @@ process_source() {
         clear_active_files
         return 1
     }
+    source_fingerprint=$(file_fingerprint "$source") || {
+        error "could not fingerprint source before conversion: $source"
+        clear_active_files
+        return 1
+    }
     source_before=$(file_identity "$source") || {
         error "could not inspect source before conversion: $source"
         clear_active_files
         return 1
     }
+    source_content_before=${source_before%:*}
     if [[ -n ${clean_scan:-} ]]; then
         scan_directory=$(mktemp -d "${TMPDIR:-/tmp}/pdf-slim-scan.XXXXXX") || {
             error "could not create scan-cleanup temporary directory: $source"
@@ -1604,12 +1664,12 @@ process_source() {
         return 1
     }
     ACTIVE_SCAN_DIRECTORY=''
-    source_after=$(file_identity "$source") || source_after='missing'
-    if [[ $source_before != "$source_after" ]]; then
-        error "source changed during conversion; leaving it untouched: $source"
+    if ! verify_source_unchanged "$source" "$source_before" \
+        "$source_content_before" "$source_fingerprint" 'during conversion'; then
         clear_active_files
         return 1
     fi
+    source_before=$SOURCE_CHECK_IDENTITY
     finalize_candidate_metadata "$source" "$candidate" "$metadata_mode" \
         "$timestamp_reference" || {
         error "could not preserve requested metadata: $source"
@@ -1645,12 +1705,23 @@ process_source() {
         return 1
     fi
     if [[ $mode == replace ]]; then
-        source_after=$(file_identity "$source") || source_after='missing'
-        if [[ $source_before != "$source_after" ]]; then
-            error "source changed before replacement; leaving it untouched: $source"
+        if ! verify_source_unchanged "$source" "$source_before" \
+            "$source_content_before" "$source_fingerprint" \
+            'before replacement'; then
             clear_active_files
             return 1
         fi
+        source_after=$SOURCE_CHECK_IDENTITY
+        if (( SOURCE_CHECK_METADATA_CHANGED )); then
+            finalize_candidate_metadata "$source" "$candidate" \
+                "$metadata_mode" "$timestamp_reference" || {
+                error "could not refresh requested metadata: $source"
+                clear_active_files
+                return 1
+            }
+            verbose "metadata refreshed before replacement ($metadata_mode): $source"
+        fi
+        source_before=$source_after
     fi
     if [[ $mode == replace ]]; then
         verbose "publishing replacement atomically: $source"

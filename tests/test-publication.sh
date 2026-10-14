@@ -53,13 +53,70 @@ process_source "$source_pdf" source.pdf "$output_dir/source.pdf"
 
 mode='file'
 exact_pdf=$test_dir/exact.pdf
+exact_source_atime=$(stat -f '%a' "$source_pdf")
 process_source "$source_pdf" source.pdf "$exact_pdf"
 [[ -s $exact_pdf ]]
 [[ $(file_mode "$exact_pdf") == 640 ]]
-[[ $(stat -f '%a' "$exact_pdf") == "$source_atime" ]]
+[[ $(stat -f '%a' "$exact_pdf") == "$exact_source_atime" ]]
 [[ $(stat -f '%m' "$exact_pdf") == "$source_mtime" ]]
 
+metadata_change_pdf=$test_dir/metadata-change.pdf
+metadata_change_output=$test_dir/metadata-change-output.pdf
+printf '%1000s\n' '%PDF-1.7 metadata change source' >"$metadata_change_pdf"
+metadata_change_hash=$(shasum -a 256 <"$metadata_change_pdf")
+metadata_change_size=$(file_size "$metadata_change_pdf")
+metadata_change_mtime=$(file_mtime "$metadata_change_pdf")
+metadata_change_ctime=$(stat -f '%c' "$metadata_change_pdf")
+FAKE_GS_SOURCE_CHANGE=metadata-only
+export FAKE_GS_SOURCE_CHANGE
+timeout_duration=3s
+process_source "$metadata_change_pdf" metadata-change.pdf \
+    "$metadata_change_output"
+[[ -s $metadata_change_output ]]
+[[ $(shasum -a 256 <"$metadata_change_pdf") == "$metadata_change_hash" ]]
+[[ $(file_size "$metadata_change_pdf") == "$metadata_change_size" ]]
+[[ $(file_mtime "$metadata_change_pdf") == "$metadata_change_mtime" ]]
+[[ $(stat -f '%c' "$metadata_change_pdf") != "$metadata_change_ctime" ]]
+
+content_change_pdf=$test_dir/content-change.pdf
+content_change_output=$test_dir/content-change-output.pdf
+content_change_reference=$test_dir/content-change-reference
+printf '%1000s\n' '%PDF-1.7 content change source' >"$content_change_pdf"
+touch -r "$content_change_pdf" "$content_change_reference"
+content_change_size=$(file_size "$content_change_pdf")
+content_change_mtime=$(file_mtime "$content_change_pdf")
+content_change_ctime=$(stat -f '%c' "$content_change_pdf")
+content_change_hash=$(shasum -a 256 <"$content_change_pdf")
+FAKE_GS_SOURCE_CHANGE=content-preserve-stat
+FAKE_GS_MTIME_REFERENCE=$content_change_reference
+export FAKE_GS_SOURCE_CHANGE FAKE_GS_MTIME_REFERENCE
+if process_source "$content_change_pdf" content-change.pdf \
+    "$content_change_output"; then
+    printf '%s\n' 'expected changed source content to block publication' >&2
+    exit 1
+fi
+[[ ! -e $content_change_output ]]
+[[ $(file_size "$content_change_pdf") == "$content_change_size" ]]
+[[ $(file_mtime "$content_change_pdf") == "$content_change_mtime" ]]
+[[ $(stat -f '%c' "$content_change_pdf") != "$content_change_ctime" ]]
+[[ $(shasum -a 256 <"$content_change_pdf") != "$content_change_hash" ]]
+unset FAKE_GS_SOURCE_CHANGE FAKE_GS_MTIME_REFERENCE
+timeout_duration=1s
+
 mode=replace
+metadata_replace_pdf=$test_dir/metadata-replace.pdf
+printf '%1000s\n' '%PDF-1.7 metadata replacement source' \
+    >"$metadata_replace_pdf"
+metadata_replace_size=$(file_size "$metadata_replace_pdf")
+FAKE_GS_SOURCE_CHANGE=metadata-only
+export FAKE_GS_SOURCE_CHANGE
+timeout_duration=3s
+process_source "$metadata_replace_pdf" metadata-replace.pdf \
+    "$metadata_replace_pdf"
+[[ $(file_size "$metadata_replace_pdf") -lt $metadata_replace_size ]]
+unset FAKE_GS_SOURCE_CHANGE
+timeout_duration=1s
+
 replace_pdf=$test_dir/replace.pdf
 printf '%1000s\n' '%PDF-1.7 replace source' >"$replace_pdf"
 original_size=$(file_size "$replace_pdf")
@@ -142,5 +199,35 @@ if find "$test_dir" -name '.pdf-slim.*' -print | grep .; then
     printf '%s\n' 'temporary candidate was not cleaned up' >&2
     exit 1
 fi
+
+# Redefine metadata finalization only for this last sourced-function test. The
+# first call changes source permissions after copying them; the final replace
+# checkpoint must tolerate unchanged bytes and refresh the candidate metadata.
+finalize_candidate_metadata() {
+    local source=$1
+    local candidate=$2
+    local source_mode
+
+    source_mode=$(file_mode "$source")
+    chmod "$source_mode" "$candidate"
+    final_metadata_calls=$((final_metadata_calls + 1))
+    if (( final_metadata_calls == 1 )); then
+        sleep 1.1
+        chmod 600 "$source"
+    fi
+}
+
+mode=replace
+metadata_mode=basic
+final_metadata_calls=0
+final_checkpoint_pdf=$test_dir/final-checkpoint.pdf
+printf '%1000s\n' '%PDF-1.7 final checkpoint source' >"$final_checkpoint_pdf"
+chmod 640 "$final_checkpoint_pdf"
+FAKE_GS_MODE=success
+export FAKE_GS_MODE
+process_source "$final_checkpoint_pdf" final-checkpoint.pdf \
+    "$final_checkpoint_pdf"
+[[ $final_metadata_calls -eq 2 ]]
+[[ $(file_mode "$final_checkpoint_pdf") == 600 ]]
 
 printf '%s\n' 'publication tests passed'
