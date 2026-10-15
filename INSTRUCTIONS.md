@@ -52,16 +52,20 @@ this history.
 pdf-slim.sh                    Active functional consolidated script
 scan-clean.sh                  Standalone raster-image scan cleanup command
 README.md                      User documentation
+docs/                         Focused user, safety, quality, and design docs
 INSTRUCTIONS.md                This handoff
 .gitignore                     Runtime/temp exclusions
 tests/                         Automated suite and command doubles
 ```
 
-`pdf-slim.sh` 1.2.3 implements safe traversal, dry-run planning, reliable
+The current uncommitted `pdf-slim.sh` 1.3.0 candidate implements safe
+traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
-state directory, guarded image-only scan cleanup, and timestamped operational
-output.
+state directory, guarded image-only scan cleanup, timestamped operational
+output, and bounded concurrent PDF page cleanup through explicit `--jobs N`.
+The concurrency candidate, its tests, and its documentation remain uncommitted
+pending the automatic-worker-policy decision.
 
 `scan-clean.sh` 1.0.1 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
@@ -233,6 +237,12 @@ The user has approved these decisions:
 18. When PDF cleanup rendering flattens page rotation into pixels, preserve the
     visible page geometry: swap effective width and height for 90- and
     270-degree pages, and retain them for 0- and 180-degree pages.
+19. The current concurrency candidate accepts explicit `--jobs N` values from
+    1 through 11 with a serial default. Workers operate on independent PDF
+    pages; final geometry inspection and PDF assembly remain ordered. A page
+    failure suppresses assembly, and interruption terminates active workers
+    before removing their temporary directory. Automatic worker selection has
+    not been approved or implemented.
 
 Implemented options:
 
@@ -255,6 +265,8 @@ Implemented options:
 - `--grayscale` — explicit and independent of quality mode.
 - `--clean-scan [MODE]` — gentle, standard, or strong image-only scan contrast
   cleanup; omit the mode to use standard.
+- `--jobs N` — current candidate control for 1 through 11 concurrent PDF page
+  cleanup workers; default 1 and requires `--clean-scan`.
 - `--help` — document usage, defaults, behavior, and statuses.
 - `--version` — add once useful; a development version is acceptable early.
 
@@ -392,15 +404,19 @@ doubles where useful. At minimum cover:
 - no log update after failure/timeout;
 - dry-run performs no writes and launches no Ghostscript process.
 
-Always run:
+Always run the complete suite and static checks before committing executable or
+test changes:
 
 ```bash
-bash -n pdf-slim.sh
+./tests/run.sh
+bash -n pdf-slim.sh scan-clean.sh tests/*.sh
+shellcheck pdf-slim.sh scan-clean.sh tests/*.sh
 ```
 
-Run ShellCheck; it is installed in the last observed environment. Do not install
-or upgrade dependencies without approval.
-Keep `README.md` and both commands' usage text aligned with behavior.
+ShellCheck is installed in the last observed environment. Do not install or
+upgrade dependencies without approval. Keep `README.md`, focused documents,
+and both commands' usage text aligned with behavior. `tests/README.md` is the
+detailed test-suite reference.
 
 ## Deferred work
 
@@ -448,8 +464,11 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-The implementation and legacy-history migration are complete. The next
-substantive safety improvement is Ghostscript recovery-warning handling, but it
-requires explicit design approval before code changes. For future changes, run
-`tests/run.sh`, Bash syntax checks, and ShellCheck before release, and keep
-subsequent changes small and reviewable.
+Review the automatic PDF scan-cleanup concurrency policy before changing the
+serial default. The completed 1-through-11 worker experiment, environment,
+method, output-equivalence evidence, results, planned automatic policy, and
+anonymous metrics design are recorded in `docs/scan-clean-concurrency.md`.
+Automatic selection and metrics are documented but not yet implemented; review
+the remaining decisions in that document first. The next deferred safety
+improvement remains Ghostscript recovery-warning handling, which also requires
+explicit design approval.

@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.2.3'
+VERSION='1.3.0'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -30,6 +30,7 @@ OPERATIONAL_LAST_STREAM='stderr'
 VERBOSE=0
 SOURCE_CHECK_IDENTITY=''
 SOURCE_CHECK_METADATA_CHANGED=0
+ACTIVE_SCAN_WORKERS=()
 
 usage() {
     cat <<EOF
@@ -69,6 +70,8 @@ Scan cleanup:
                          (default mode: standard; with no quality options:
                          source DPI and JPEG QFactor 0.10; --grayscale remains
                          independent)
+  --jobs N                Clean up to N PDF pages concurrently, 1-11
+                          (default: 1; requires --clean-scan)
 
 Options:
   --recursive         Descend into supplied directories
@@ -833,6 +836,29 @@ remove_scan_directory() {
     fi
 }
 
+remove_active_scan_worker() {
+    local completed_pid=$1
+    local pid
+    local -a remaining=()
+
+    for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
+        [[ $pid == "$completed_pid" ]] || remaining[${#remaining[@]}]=$pid
+    done
+    ACTIVE_SCAN_WORKERS=( "${remaining[@]}" )
+}
+
+stop_active_scan_workers() {
+    local pid
+
+    for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
+        kill "$pid" 2>/dev/null || true
+    done
+    for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+    ACTIVE_SCAN_WORKERS=()
+}
+
 run_scan_command() {
     local stage=$1
     local source=$2
@@ -855,6 +881,85 @@ run_scan_command() {
         operational_continuation stderr "$SCAN_COMMAND_OUTPUT"
     return 1
 }
+
+clean_scan_page() (
+    local source=$1
+    local scan_directory=$2
+    local page=$3
+    local page_count=$4
+    local cleanup_mode=$5
+    local timeout_command=$6
+    local timeout_duration=$7
+    local pdftocairo_command=$8
+    local scan_clean_command=$9
+    local rendered=$scan_directory/rendered/page-$page
+    local cleaned=$scan_directory/cleaned/page-$page.png
+    local command_output=$scan_directory/workers/page-$page.command-output
+    local child_pid=''
+    local status
+
+    # Invoked indirectly by the signal traps below.
+    # shellcheck disable=SC2329
+    stop_worker_child() {
+        local signal_status=$1
+
+        if [[ -n $child_pid ]]; then
+            kill "$child_pid" 2>/dev/null || true
+            wait "$child_pid" 2>/dev/null || true
+        fi
+        rm -f -- "$command_output"
+        exit "$signal_status"
+    }
+
+    run_page_command() {
+        local stage=$1
+        shift
+
+        : >"$command_output" || return 1
+        "$timeout_command" -- "$timeout_duration" "$@" \
+            >"$command_output" 2>&1 &
+        child_pid=$!
+        wait "$child_pid"
+        status=$?
+        child_pid=''
+        if (( status == 0 )); then
+            return 0
+        fi
+        if (( status == 124 )); then
+            error "$stage timed out after $timeout_duration: $source"
+        else
+            error "$stage failed with status $status: $source"
+        fi
+        if [[ -s $command_output ]]; then
+            operational_continuation stderr "$(<"$command_output")"
+        fi
+        return 1
+    }
+
+    trap 'stop_worker_child 129' HUP
+    trap 'stop_worker_child 130' INT
+    trap 'stop_worker_child 143' TERM
+
+    verbose "rendering page $page of $page_count: $source"
+    run_page_command 'scan page rendering' \
+        "$pdftocairo_command" -png -singlefile -f "$page" -l "$page" \
+        -rx "${SCAN_X_DPI[$page]}" -ry "${SCAN_Y_DPI[$page]}" \
+        "$source" "$rendered" || exit 1
+    if [[ ! -s $rendered.png ]]; then
+        error "scan renderer produced no page image (page $page): $source"
+        exit 1
+    fi
+    verbose "cleaning page $page of $page_count ($cleanup_mode): $source"
+    run_page_command 'scan contrast cleanup' \
+        "$scan_clean_command" --input "$rendered.png" --output "$cleaned" \
+        --mode "$cleanup_mode" --strip-metadata \
+        --timeout "$timeout_duration" || exit 1
+    if [[ ! -s $cleaned ]]; then
+        error "scan cleanup produced no page image (page $page): $source"
+        exit 1
+    fi
+    rm -f -- "$command_output"
+)
 
 inspect_scan_pdf() {
     local source=$1
@@ -1090,9 +1195,14 @@ clean_scan_pdf() {
     local pdfdetach_command=${12}
     local pdftocairo_command=${13}
     local scan_clean_command=${14}
+    local jobs=${15:-1}
     local page rendered cleaned dimensions pixel_width pixel_height
     local output_x_dpi output_y_dpi
+    local worker_pid worker_log worker_status
+    local next_page=1 failed=0
     local -a assembly_args=()
+    local -a worker_pids=()
+    local -a worker_logs=()
 
     verbose "inspecting PDF for safe image-only cleanup: $source"
     inspect_scan_pdf "$source" "$scan_directory" "$timeout_command" \
@@ -1100,30 +1210,43 @@ clean_scan_pdf() {
         "$pdfinfo_command" "$pdfimages_command" "$pdftotext_command" \
         "$pdfdetach_command" || return 1
     verbose "scan inspection accepted $SCAN_PAGE_COUNT page(s): $source"
-    mkdir "$scan_directory/rendered" "$scan_directory/cleaned" || return 1
+    mkdir "$scan_directory/rendered" "$scan_directory/cleaned" \
+        "$scan_directory/workers" || return 1
+    while (( next_page <= SCAN_PAGE_COUNT || ${#worker_pids[@]} )); do
+        while (( ! failed && next_page <= SCAN_PAGE_COUNT && \
+            ${#worker_pids[@]} < jobs )); do
+            worker_log=$scan_directory/workers/page-$next_page.log
+            clean_scan_page "$source" "$scan_directory" "$next_page" \
+                "$SCAN_PAGE_COUNT" "$cleanup_mode" "$timeout_command" \
+                "$timeout_duration" "$pdftocairo_command" \
+                "$scan_clean_command" >"$worker_log" 2>&1 &
+            worker_pid=$!
+            ACTIVE_SCAN_WORKERS[${#ACTIVE_SCAN_WORKERS[@]}]=$worker_pid
+            worker_pids[${#worker_pids[@]}]=$worker_pid
+            worker_logs[${#worker_logs[@]}]=$worker_log
+            ((next_page += 1))
+        done
+        (( ${#worker_pids[@]} )) || break
+        worker_pid=${worker_pids[0]}
+        worker_log=${worker_logs[0]}
+        wait "$worker_pid"
+        worker_status=$?
+        remove_active_scan_worker "$worker_pid"
+        if [[ -s $worker_log ]]; then
+            OPERATIONAL_LAST_STREAM=stderr
+            while IFS= read -r rendered; do
+                raw_output_line stderr "$rendered"
+            done <"$worker_log"
+        fi
+        (( worker_status == 0 )) || failed=1
+        worker_pids=( "${worker_pids[@]:1}" )
+        worker_logs=( "${worker_logs[@]:1}" )
+    done
+    (( failed == 0 )) || return 1
+
     page=1
     while (( page <= SCAN_PAGE_COUNT )); do
-        rendered=$scan_directory/rendered/page-$page
         cleaned=$scan_directory/cleaned/page-$page.png
-        verbose "rendering page $page of $SCAN_PAGE_COUNT: $source"
-        run_scan_command 'scan page rendering' "$source" "$timeout_command" \
-            "$timeout_duration" "$pdftocairo_command" -png -singlefile \
-            -f "$page" -l "$page" -rx "${SCAN_X_DPI[$page]}" \
-            -ry "${SCAN_Y_DPI[$page]}" "$source" "$rendered" || return 1
-        if [[ ! -s $rendered.png ]]; then
-            error "scan renderer produced no page image (page $page): $source"
-            return 1
-        fi
-        verbose "cleaning page $page of $SCAN_PAGE_COUNT ($cleanup_mode): $source"
-        run_scan_command 'scan contrast cleanup' "$source" "$timeout_command" \
-            "$timeout_duration" "$scan_clean_command" \
-            --input "$rendered.png" --output "$cleaned" \
-            --mode "$cleanup_mode" --strip-metadata \
-            --timeout "$timeout_duration" || return 1
-        if [[ ! -s $cleaned ]]; then
-            error "scan cleanup produced no page image (page $page): $source"
-            return 1
-        fi
         run_scan_command 'cleaned page geometry inspection' "$source" \
             "$timeout_command" "$timeout_duration" "$magick_command" \
             "$cleaned" -format '%w %h' info: || return 1
@@ -1606,6 +1729,7 @@ plan_actions() {
 }
 
 clear_active_files() {
+    stop_active_scan_workers
     remove_candidate "${ACTIVE_CANDIDATE:-}"
     remove_candidate "${ACTIVE_METADATA_REFERENCE:-}"
     remove_scan_directory "${ACTIVE_SCAN_DIRECTORY:-}"
@@ -1707,7 +1831,7 @@ process_source() {
                 "$gs_command" "$magick_command" "$pdfinfo_command" \
                 "$pdfimages_command" "$pdftotext_command" \
                 "$pdfdetach_command" "$pdftocairo_command" \
-                "$scan_clean_command"
+                "$scan_clean_command" "$jobs"
         fi || {
             clear_active_files
             return 1
@@ -1834,6 +1958,7 @@ main() {
     local output_file=''
     local mode=''
     local timeout_duration='1h'
+    local jobs=1
     local quality='preserve'
     local max_dpi=''
     local jpeg_recompress=''
@@ -1849,6 +1974,7 @@ main() {
     local quality_explicit=0
     local detailed_quality=0
     local clean_scan_mode_explicit=0
+    local jobs_explicit=0
     local metadata_mode_explicit=0
     local pattern_found=0
     local -a inputs=()
@@ -1869,6 +1995,7 @@ main() {
     ACTIVE_CANDIDATE=''
     ACTIVE_METADATA_REFERENCE=''
     ACTIVE_SCAN_DIRECTORY=''
+    ACTIVE_SCAN_WORKERS=()
     ACTIVE_LOG_LOCK=''
     VERBOSE=0
 
@@ -1954,6 +2081,16 @@ main() {
                     break
                 fi
                 timeout_duration=$1
+                shift
+                ;;
+            --jobs)
+                if (( $# == 0 )); then
+                    error '--jobs requires an integer argument'
+                    parse_failed=1
+                    break
+                fi
+                jobs=$1
+                jobs_explicit=1
                 shift
                 ;;
             --dry-run) dry_run=1 ;;
@@ -2128,6 +2265,14 @@ main() {
         error '--timeout duration must not be empty'
         return 2
     fi
+    if [[ ! $jobs =~ ^([1-9]|1[01])$ ]]; then
+        error "--jobs must be an integer from 1 through 11: $jobs"
+        return 2
+    fi
+    if (( jobs_explicit )) && [[ -z $clean_scan ]]; then
+        error '--jobs requires --clean-scan'
+        return 2
+    fi
     if (( reprocess )) && [[ $mode != replace ]]; then
         error '--reprocess requires --replace'
         return 2
@@ -2216,6 +2361,7 @@ main() {
         else
             verbose "scan cleanup mode: $clean_scan (default)"
         fi
+        verbose "scan cleanup workers: $jobs"
     else
         verbose 'scan cleanup: disabled'
     fi

@@ -31,6 +31,7 @@ grep -q -- 'Do not combine --quality' "$test_dir/help-long.out"
 grep -q -- '--clean-scan \[MODE\]' "$test_dir/help-long.out"
 grep -q -- 'gentle, standard, or' "$test_dir/help-long.out"
 grep -q -- 'default mode: standard' "$test_dir/help-long.out"
+grep -q -- '--jobs N' "$test_dir/help-long.out"
 grep -q -- '-v, --verbose' "$test_dir/help-long.out"
 grep -q -- 'safely reduces PDF file sizes' "$test_dir/help-long.out"
 grep -q -- 'For image output, use scan-clean.sh.' "$test_dir/help-long.out"
@@ -42,7 +43,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.2.3' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.3.0' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -288,6 +289,21 @@ if PATH="$test_path" "$cli" --clean-scan extreme --replace \
 fi
 grep -q 'unsupported scan cleanup mode: extreme' \
     "$test_dir/invalid-clean.err"
+if PATH="$test_path" "$cli" --jobs 2 --replace \
+    -i "$test_dir/input/one.pdf" >"$test_dir/jobs-no-clean.out" \
+    2>"$test_dir/jobs-no-clean.err"; then
+    printf '%s\n' 'expected --jobs without scan cleanup to fail' >&2
+    exit 1
+fi
+grep -q -- '--jobs requires --clean-scan' "$test_dir/jobs-no-clean.err"
+for invalid_jobs in 0 12 two 1.5; do
+    if PATH="$test_path" "$cli" --jobs "$invalid_jobs" --clean-scan \
+        --replace -i "$test_dir/input/one.pdf" >/dev/null 2>&1; then
+        printf 'expected invalid --jobs value to fail: %s\n' \
+            "$invalid_jobs" >&2
+        exit 1
+    fi
+done
 default_clean_output=$test_dir/default-clean.pdf
 PATH="$test_path" "$cli" --dry-run -i "$test_dir/input/one.pdf" \
     --clean-scan -o "$default_clean_output" \
@@ -297,11 +313,12 @@ grep -q 'would clean scan (standard):' "$test_dir/default-clean.out"
 [[ ! -e $default_clean_output ]]
 verbose_output=$test_dir/verbose-output.pdf
 PATH="$test_path" "$cli" --dry-run -v -i "$test_dir/input/one.pdf" \
-    --clean-scan -o "$verbose_output" \
+    --clean-scan --jobs 2 -o "$verbose_output" \
     >"$test_dir/verbose.out" 2>"$test_dir/verbose.err"
 grep -q 'verbose: discovered 1 input(s)' "$test_dir/verbose.err"
 grep -q 'verbose: scan cleanup mode: standard (default)' \
     "$test_dir/verbose.err"
+grep -q 'verbose: scan cleanup workers: 2' "$test_dir/verbose.err"
 grep -q 'verbose: PDF quality: scan-clean defaults' "$test_dir/verbose.err"
 grep -q 'verbose: metadata: standard (default)' "$test_dir/verbose.err"
 grep -q 'would clean scan (standard):' "$test_dir/verbose.out"

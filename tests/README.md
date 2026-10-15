@@ -62,6 +62,7 @@ macOS when `xattr` is available.
 | `test-real-gs.sh` | Real Ghostscript output for all three quality presets in color and grayscale, detailed quality controls, verbose conversion stages, exact output, and smaller-file replacement; every result is parsed again by Ghostscript. |
 | `test-scan-inspection.sh` | Focused PDF scan-cleanup acceptance of a structurally associated soft mask and refusal guards for invalid page counts, encryption, forms, JavaScript, geometry, text, attachments, links, named destinations, image type/count/DPI, orphaned or mismatched masks, and residual vector content. |
 | `test-scan-cleanup.sh` | Real PDF scan cleanup at gentle, standard, and strong strengths; real alpha-image/soft-mask input; mixed 0/90/180/270-degree page geometry; verbose page stages; page-size preservation; detailed and lossless quality paths; grayscale multipage output; refusal of visible vector/text content; mixed-batch behavior. |
+| `test-scan-parallel.sh` | Independently validated controlled-worker overlap; bounded PDF page concurrency; ordered assembly; failed-page propagation and assembly suppression. |
 | `test-scan-clean-delegation.sh` | Discovery of the sibling or `PATH` cleanup engine; delegated mode, timeout, input/output, and metadata arguments; engine failure and timeout propagation; temporary-directory cleanup; missing dependency refusal. |
 | `test-image-to-pdf.sh` | Raster-image-to-PDF cleanup; physical sizing from credible or fallback density; detailed quality and grayscale; batch and recursive mapping; destination collisions; animated-image refusal; replacement prohibition. |
 | `test-scan-clean-command.sh` | Standalone image cleanup help and validation; default and all-mode naming; verbose CLI reporting; overwrite behavior; metadata, transparency, background, density, and JPEG quality; directory/glob filtering; metadata-only source churn and real source-change detection; publication races; signal, partial-failure, timeout, and temporary cleanup. |
@@ -88,4 +89,6 @@ tests.
 The automated suite verifies file integrity, command behavior, PDF validity,
 image properties, and safety invariants. It does not judge subjective visual
 quality. Changes to cleanup strength or lossy PDF settings still require
-comparison using representative documents.
+comparison using representative documents. Performance is likewise not an
+automated pass/fail property; completed manual experiments are recorded in the
+[scan-clean concurrency documentation](../docs/scan-clean-concurrency.md).

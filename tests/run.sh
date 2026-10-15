@@ -17,6 +17,7 @@ for test_script in \
     test-real-gs.sh \
     test-scan-inspection.sh \
     test-scan-cleanup.sh \
+    test-scan-parallel.sh \
     test-scan-clean-delegation.sh \
     test-image-to-pdf.sh \
     test-scan-clean-command.sh
