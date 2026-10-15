@@ -62,6 +62,45 @@ for cleanup_mode in gentle standard strong; do
         END { exit !found }'
 done
 
+alpha_png=$test_dir/alpha-scan.png
+alpha_pdf=$test_dir/alpha-scan.pdf
+alpha_output=$test_dir/alpha-scan-cleaned.pdf
+magick -size 600x800 xc:none -fill '#eeeeee' \
+    -draw 'rectangle 10,10 589,789' -fill '#222222' \
+    -draw 'rectangle 70,100 530,115 rectangle 70,180 530,190' \
+    "$alpha_png"
+magick -units PixelsPerInch -density 100 "$alpha_png" "$alpha_pdf"
+
+# Independently prove that the real fixture contains one primary image and its
+# structurally associated grayscale soft mask.
+pdfimages -list "$alpha_pdf" | awk '
+    $1 == 1 && $3 == "image" {
+        image += 1
+        image_key = $11 ":" $12 ":" $4 ":" $5 ":" $13 ":" $14
+    }
+    $1 == 1 && $3 == "smask" {
+        smask += 1
+        smask_key = $11 ":" $12 ":" $4 ":" $5 ":" $13 ":" $14
+        valid_mask = ($6 == "gray" && $7 == 1)
+    }
+    END {
+        exit !(image == 1 && smask == 1 && image_key == smask_key && valid_mask)
+    }'
+alpha_source_size=$(pdfinfo "$alpha_pdf" | awk -F: \
+    '$1 == "Page size" { sub(/^[[:space:]]+/, "", $2); print $2; exit }')
+"$project_dir/pdf-slim.sh" --input "$alpha_pdf" --output "$alpha_output" \
+    --clean-scan standard --preserve-metadata none >/dev/null
+[[ -s $alpha_output ]]
+gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$alpha_output"
+alpha_output_size=$(pdfinfo "$alpha_output" | awk -F: \
+    '$1 == "Page size" { sub(/^[[:space:]]+/, "", $2); print $2; exit }')
+[[ $alpha_output_size == "$alpha_source_size" ]]
+pdftocairo -png -singlefile -r 72 "$alpha_output" \
+    "$test_dir/alpha-render"
+magick identify -quiet -format '%[fx:minima] %[fx:maxima]\n' \
+    "$test_dir/alpha-render.png" | awk \
+    '{ exit !($1 < 0.5 && $2 > 0.9) }'
+
 detailed_pdf=$test_dir/detailed.pdf
 "$project_dir/pdf-slim.sh" --input "$scan_pdf" --output "$detailed_pdf" \
     --clean-scan standard --max-dpi 72 --jpeg-recompress 0.15 \

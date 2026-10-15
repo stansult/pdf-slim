@@ -9,7 +9,7 @@ directly to raster images.
 Use `pdf-slim.sh` when the output should be a PDF. Use `scan-clean.sh` when the
 output should remain an image.
 
-Current versions: `pdf-slim.sh` 1.2.1 and `scan-clean.sh` 1.0.1.
+Current versions: `pdf-slim.sh` 1.2.2 and `scan-clean.sh` 1.0.1.
 
 ## Current capabilities
 
@@ -41,6 +41,8 @@ Current versions: `pdf-slim.sh` 1.2.1 and `scan-clean.sh` 1.0.1.
   matching identity and processing settings.
 - Offers gentle, standard, and strong contrast cleanup for safely detected
   image-only scans while retaining their page size, resolution, and color.
+- Accepts a page image with one structurally associated grayscale soft mask;
+  independent, multiple, or mismatched masks remain unsafe.
 - Delegates PDF page pixel cleanup to the companion `scan-clean.sh` engine so
   image and PDF cleanup use the same adaptive behavior.
 - Accepts a raster scan directly and creates a cleaned PDF in one command when
@@ -446,10 +448,12 @@ modification time were preserved.
 Scan cleanup intentionally rebuilds pixels, so it first verifies that every
 page is an image-only scan. It refuses encrypted PDFs and detectable searchable
 text, forms, JavaScript, attachments, links, named destinations, visible vector
-content, or pages that do not contain exactly one ordinary image. A rejected
-file is left untouched; other files in a batch continue, and the command exits
-with status `1`. Cleanup temporary files are removed on success, failure,
-timeout, or interruption.
+content, or pages that do not contain exactly one primary image. One grayscale,
+single-component soft mask is allowed only when its PDF object, pixel dimensions,
+and resolution match that primary image. Independent, multiple, or mismatched
+masks remain unsafe. A rejected file is left untouched; other files in a batch
+continue, and the command exits with status `1`. Cleanup temporary files are
+removed on success, failure, timeout, or interruption.
 
 `--dry-run` reports the intended cleanup but defers content inspection until a
 real run so it can remain write-free and avoid Ghostscript. In `--replace` mode,
@@ -618,13 +622,14 @@ tests/                       Automated conversion, publication, logging, and CLI
 
 ## Release status
 
-`pdf-slim.sh` version 1.2.1 delegates guarded PDF scan pixel cleanup to the
+`pdf-slim.sh` version 1.2.2 delegates guarded PDF scan pixel cleanup to the
 companion `scan-clean.sh` engine while retaining PDF-specific inspection,
 metadata, quality, publication, replacement, and logging safeguards.
 It also accepts raster scans directly and creates cleaned PDFs through the same
-engine and PDF quality pipeline. Version 1.2.1 tolerates metadata-only `ctime`
-changes after verifying source bytes with SHA-256, avoiding false failures in
-cloud-synchronized folders without weakening content-change detection.
+engine and PDF quality pipeline. Version 1.2.2 accepts one structurally
+associated image soft mask per PDF page while continuing to reject unrelated or
+mismatched image objects. It also retains the 1.2.1 content-aware handling of
+metadata-only source changes in cloud-synchronized folders.
 `scan-clean.sh` version 1.0.1 applies the shared adaptive cleanup directly to
 single-frame raster images with safe standalone and batch publication, and now
 uses the same content-aware source-change protection as `pdf-slim.sh`. Future

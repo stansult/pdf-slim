@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.2.1'
+VERSION='1.2.2'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -868,9 +868,13 @@ inspect_scan_pdf() {
     local pdftotext_command=$9
     local pdfdetach_command=${10}
     local pages encrypted form javascript compact page type
-    local x_dpi y_dpi page_width page_height minimum residual
+    local width height color components object generation x_dpi y_dpi
+    local page_width page_height minimum residual image_key
     local i
     local -a image_counts=()
+    local -a smask_counts=()
+    local -a image_keys=()
+    local -a smask_keys=()
     local -a fields=()
 
     run_scan_command 'PDF inspection' "$source" "$timeout_command" \
@@ -969,21 +973,57 @@ inspect_scan_pdf() {
         page=${fields[0]:-}
         [[ $page =~ ^[1-9][0-9]*$ ]] || continue
         type=${fields[2]:-}
+        width=${fields[3]:-}
+        height=${fields[4]:-}
+        color=${fields[5]:-}
+        components=${fields[6]:-}
+        object=${fields[10]:-}
+        generation=${fields[11]:-}
         x_dpi=${fields[12]:-}
         y_dpi=${fields[13]:-}
-        image_counts[page]=$((${image_counts[page]:-0} + 1))
-        if [[ $type != image || ! $x_dpi =~ ^[1-9][0-9]*$ ||
+        if [[ ! $width =~ ^[1-9][0-9]*$ ||
+            ! $height =~ ^[1-9][0-9]*$ ||
+            ! $object =~ ^[1-9][0-9]*$ || ! $generation =~ ^[0-9]+$ ||
+            ! $x_dpi =~ ^[1-9][0-9]*$ ||
             ! $y_dpi =~ ^[1-9][0-9]*$ ]]; then
             error "scan cleanup requires exactly one ordinary image per page: $source"
             return 1
         fi
-        SCAN_X_DPI[page]=$x_dpi
-        SCAN_Y_DPI[page]=$y_dpi
+        image_key=$object:$generation:$width:$height:$x_dpi:$y_dpi
+        case $type in
+            image)
+                image_counts[page]=$((${image_counts[page]:-0} + 1))
+                image_keys[page]=$image_key
+                SCAN_X_DPI[page]=$x_dpi
+                SCAN_Y_DPI[page]=$y_dpi
+                ;;
+            smask)
+                if [[ $color != gray || $components != 1 ]]; then
+                    error "scan cleanup requires a grayscale, single-component soft mask: $source"
+                    return 1
+                fi
+                smask_counts[page]=$((${smask_counts[page]:-0} + 1))
+                smask_keys[page]=$image_key
+                ;;
+            *)
+                error "scan cleanup requires exactly one ordinary image per page: $source"
+                return 1
+                ;;
+        esac
     done <<<"$SCAN_COMMAND_OUTPUT"
     i=1
     while (( i <= pages )); do
         if (( ${image_counts[$i]:-0} != 1 )); then
             error "scan cleanup requires exactly one image on every page (page $i): $source"
+            return 1
+        fi
+        if (( ${smask_counts[$i]:-0} > 1 )); then
+            error "scan cleanup allows at most one associated soft mask per page (page $i): $source"
+            return 1
+        fi
+        if (( ${smask_counts[$i]:-0} == 1 )) &&
+            [[ ${smask_keys[$i]} != "${image_keys[$i]}" ]]; then
+            error "scan cleanup soft mask does not match its page image (page $i): $source"
             return 1
         fi
         ((i += 1))

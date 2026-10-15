@@ -77,6 +77,41 @@ case $command_name in
                     '1 0 image 100 100 rgb 3 8 jpeg no 1 0 300 300 1K 1%' \
                     '1 1 image 100 100 rgb 3 8 jpeg no 2 0 300 300 1K 1%'
                 ;;
+            smask-valid)
+                printf '%s\n' \
+                    '1 0 image 100 100 rgb 3 8 image no 1 0 300 300 1K 1%' \
+                    '1 1 smask 100 100 gray 1 8 image no 1 0 300 300 1K 1%'
+                ;;
+            smask-orphan)
+                printf '%s\n' \
+                    '1 0 smask 100 100 gray 1 8 image no 1 0 300 300 1K 1%'
+                ;;
+            smask-object)
+                printf '%s\n' \
+                    '1 0 image 100 100 rgb 3 8 image no 1 0 300 300 1K 1%' \
+                    '1 1 smask 100 100 gray 1 8 image no 2 0 300 300 1K 1%'
+                ;;
+            smask-dimensions)
+                printf '%s\n' \
+                    '1 0 image 100 100 rgb 3 8 image no 1 0 300 300 1K 1%' \
+                    '1 1 smask 99 100 gray 1 8 image no 1 0 300 300 1K 1%'
+                ;;
+            smask-dpi)
+                printf '%s\n' \
+                    '1 0 image 100 100 rgb 3 8 image no 1 0 300 300 1K 1%' \
+                    '1 1 smask 100 100 gray 1 8 image no 1 0 299 300 1K 1%'
+                ;;
+            smask-color)
+                printf '%s\n' \
+                    '1 0 image 100 100 rgb 3 8 image no 1 0 300 300 1K 1%' \
+                    '1 1 smask 100 100 rgb 3 8 image no 1 0 300 300 1K 1%'
+                ;;
+            smask-two)
+                printf '%s\n' \
+                    '1 0 image 100 100 rgb 3 8 image no 1 0 300 300 1K 1%' \
+                    '1 1 smask 100 100 gray 1 8 image no 1 0 300 300 1K 1%' \
+                    '1 2 smask 100 100 gray 1 8 image no 1 0 300 300 1K 1%'
+                ;;
             *)
                 printf '%s\n' '1 0 image 100 100 rgb 3 8 jpeg no 1 0 300 300 1K 1%'
                 ;;
