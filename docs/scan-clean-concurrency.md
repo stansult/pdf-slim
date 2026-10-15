@@ -8,15 +8,15 @@ improve that policy after broader real-world use.
 ## Scope and current status
 
 PDF scan cleanup renders and cleans independent pages before reassembling them
-in original order. Version 1.3.0 selects workers automatically using:
+in original order. Version 1.4.0 selects workers automatically using:
 
 ```text
 effective workers = min(PDF page count, 5)
 ```
 
 An explicit `--jobs N`, accepting values from 1 through 11, overrides the
-automatic value; `--jobs 1` forces serial cleanup. Performance metrics are
-documented here but are not yet implemented.
+automatic value; `--jobs 1` forces serial cleanup. Version 1.4.0 also records
+the performance metrics documented below.
 
 ## Implemented worker behavior and safety
 
@@ -136,40 +136,44 @@ starting policy rather than claiming an optimal value. Real-world metrics will
 be used to evaluate whether page characteristics or machine capacity justify a
 different rule.
 
-## Planned anonymous performance metrics
+## Anonymous performance metrics
 
-One record will be written after every PDF scan-cleanup attempt, including
-attempts inside a larger batch. Records will contain no path, filename, content
-hash, extracted text, or document content.
+One record is written after every processed PDF scan-cleanup attempt, including
+failures and attempts inside a larger batch. Ordinary PDF conversion and
+single-raster-image input are excluded because they do not use PDF page-worker
+concurrency. Records contain no path, filename, content hash, extracted text,
+or document content.
 
 ### Human-readable completion line
 
-A concise operational summary is planned, for example:
+A concise summary is shown only with `--verbose`, for example:
 
 ```text
-metrics: pages=11 workers=5(auto) pixels=44.9MP page-time=8/10/13s cleanup=31s total=40s output=6.5MiB
+metrics: success pages=11 workers=5(auto) pixels=44.9MP page-time=8/10/13s cleanup=31s total=40s output=6.5MiB
 ```
 
-The exact wording and whether failed attempts also print it remain open. When
-printed, it should remain one logical timestamped output block.
+Failed attempts show their failure stage and whichever measurements are
+available. Normal non-verbose output remains unchanged. Each summary is one
+logical timestamped output block.
 
 ### Persistent record
 
-The full machine-readable record will use one tab-separated line per cleaned
-PDF in a versioned private file:
+The full machine-readable record uses one tab-separated line per attempted PDF
+in a versioned private file:
 
 ```text
 macOS:  ~/Library/Application Support/pdf-slim/performance.tsv
 Linux:  ${XDG_STATE_HOME:-$HOME/.local/state}/pdf-slim/performance.tsv
 ```
 
-`PDF_SLIM_STATE_DIR` will override the parent state directory consistently with
+`PDF_SLIM_STATE_DIR` overrides the parent state directory consistently with
 replacement history. The existing state directory uses mode `700`; the metrics
-file will use mode `600`. Creation and append operations must use the same
-concurrency-safe locking principles as replacement history. Malformed or
-unknown-version data must never affect conversion safety or publication.
+file uses mode `600`. Creation and append operations use an independent
+directory lock. A malformed or unknown header is never overwritten or
+appended. Recording failure emits at most one warning per invocation and never
+affects conversion safety, publication, or exit status.
 
-### Initial fields
+### Version 1 fields
 
 Identity and outcome:
 
@@ -195,7 +199,11 @@ Concurrency:
 - detected logical and physical CPU counts when available;
 - installed memory when available.
 
-Timing:
+Timing uses Bash's integer-second `SECONDS` counter, avoiding another runtime
+dependency. Unavailable TSV fields contain `-`; unavailable values are omitted
+from verbose summaries.
+
+Timing fields:
 
 - total elapsed time;
 - PDF inspection time;
@@ -231,14 +239,6 @@ Any future automatic exploration of neighboring worker counts must be an
 explicitly approved, opt-in tuning feature. Ordinary runs must remain
 predictable and must not silently vary worker count for experimentation.
 
-## Next decisions
-
-Before runtime implementation, confirm:
-
-1. Whether the metrics summary should appear on every scan-clean PDF attempt or
-   only after successful attempts.
-2. Whether integer-second timing is sufficient or a portable higher-resolution
-   clock should become a dependency.
-3. How failed attempts with incomplete inspection should represent unavailable
-   fields.
-4. Whether metrics retention needs rotation or a user-facing disable option.
+Metrics collection has no disable option and the file is not initially rotated.
+The full retained history is useful for analysis; rotation or an opt-out can be
+reconsidered only if a concrete need appears.

@@ -10,6 +10,7 @@ cleanup() {
     rm -rf -- "$test_dir"
 }
 trap cleanup EXIT HUP INT TERM
+export PDF_SLIM_STATE_DIR=$test_dir/state
 
 for command_name in gs magick pdfinfo pdfimages pdftotext pdfdetach pdftocairo; do
     command -v "$command_name" >/dev/null 2>&1 || {

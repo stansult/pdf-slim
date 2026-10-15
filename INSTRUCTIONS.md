@@ -58,14 +58,17 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-The current uncommitted `pdf-slim.sh` 1.3.0 candidate implements safe
+The current uncommitted `pdf-slim.sh` 1.4.0 candidate implements safe
 traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
 state directory, guarded image-only scan cleanup, timestamped operational
 output, and bounded concurrent PDF page cleanup. PDF cleanup automatically uses
 the smaller of its page count and five workers; explicit `--jobs N` overrides
-that choice.
+that choice. It privately records anonymous PDF scan-clean workload,
+concurrency, timing, size, machine-capacity, and outcome metrics for future
+policy tuning; normal output remains unchanged and verbose mode reports a
+one-line summary.
 
 `scan-clean.sh` 1.0.1 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
@@ -242,6 +245,15 @@ The user has approved these decisions:
     on independent PDF pages; final geometry inspection and PDF assembly remain
     ordered. A page failure suppresses assembly, and interruption terminates
     active workers before removing their temporary directory.
+20. Performance metrics will not initially have a disable option. Records must
+    remain private and anonymous, and recording failure must never change a
+    conversion or publication result. Reconsider an opt-out only if a concrete
+    need appears.
+21. Record every processed PDF `--clean-scan` attempt, including failures, but
+    not ordinary PDF conversion or single-raster-image input. Save silently in
+    normal mode and summarize only with `--verbose`. Use Bash integer-second
+    timing, `-` for unavailable TSV fields, no initial rotation, and at most one
+    recording-failure warning per invocation.
 
 Implemented options:
 
@@ -256,7 +268,8 @@ Implemented options:
   disabling safety checks.
 - `--timeout DURATION` — per-file conversion timeout, default `1h`.
 - `--dry-run` — show planned files/actions without Ghostscript or writes.
-- `-v`, `--verbose` — report resolved settings and processing stages.
+- `-v`, `--verbose` — report resolved settings, processing stages, and a
+  one-line PDF scan-clean performance summary.
 - `--quality MODE` — accept `preserve`, `balanced`, or `small`.
 - `--max-dpi DPI` — detailed positive-integer color/grayscale DPI cap.
 - `--jpeg-recompress Q` — detailed JPEG encoding with Ghostscript QFactor
@@ -267,7 +280,7 @@ Implemented options:
 - `--jobs N` — override automatic PDF page cleanup with 1 through 11 workers;
   the default is `min(page count, 5)` and the option requires `--clean-scan`.
 - `--help` — document usage, defaults, behavior, and statuses.
-- `--version` — add once useful; a development version is acceptable early.
+- `--version` — show the current command version.
 
 Accept multiple files and directories through repeated `--input` options.
 Correctly handle spaces, tabs, glob characters, and leading hyphens. Use Bash
@@ -470,8 +483,7 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-Review the remaining performance-metrics decisions in
-`docs/scan-clean-concurrency.md`; automatic worker selection is implemented but
-metrics recording is not. The next deferred safety
-improvement remains Ghostscript recovery-warning handling, which also requires
-explicit design approval.
+Collect representative `performance.tsv` history before reevaluating the
+automatic concurrency cap. The next deferred safety improvement remains
+Ghostscript recovery-warning handling, which also requires explicit design
+approval.

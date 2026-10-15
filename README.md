@@ -10,7 +10,7 @@
 Use `pdf-slim.sh` when output should be PDF. Use `scan-clean.sh` when output
 should remain an image.
 
-Current versions: `pdf-slim.sh` 1.3.0 and `scan-clean.sh` 1.0.1.
+Current versions: `pdf-slim.sh` 1.4.0 and `scan-clean.sh` 1.0.1.
 
 ## Quick start
 
@@ -77,6 +77,8 @@ See [additional PDF examples](docs/examples.md) and the
   default.
 - Delegates page-pixel cleanup to `scan-clean.sh` and automatically processes
   up to five PDF pages concurrently; `--jobs N` provides an explicit override.
+- Privately records anonymous PDF scan-clean performance metrics for future
+  concurrency tuning; verbose mode prints a one-line summary.
 - Accepts raster scans directly and produces PDF output through the same
   cleanup and PDF-quality pipeline.
 
@@ -155,7 +157,7 @@ Other options:
                           --replace and retains all safety checks
 --timeout DURATION        Per-file conversion timeout (default: 1h)
 --dry-run                 Print planned actions without conversion or writes
--v, --verbose             Show resolved settings and processing stages
+-v, --verbose             Show resolved settings, stages, and scan performance
 --preserve-metadata MODE  Preserve none, basic, standard (default), or all
 -h, --help                Show command help
 --version                 Show the version

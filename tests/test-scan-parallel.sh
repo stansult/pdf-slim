@@ -115,11 +115,17 @@ inspect_scan_pdf() {
     SCAN_PAGE_HEIGHT=( '' )
     SCAN_X_DPI=( '' )
     SCAN_Y_DPI=( '' )
+    SCAN_IMAGE_WIDTH=( '' )
+    SCAN_IMAGE_HEIGHT=( '' )
+    SCAN_IMAGE_COLOR=( '' )
     for (( page = 1; page <= page_count; page += 1 )); do
         SCAN_PAGE_WIDTH[page]=72
         SCAN_PAGE_HEIGHT[page]=72
         SCAN_X_DPI[page]=100
         SCAN_Y_DPI[page]=100
+        SCAN_IMAGE_WIDTH[page]=100
+        SCAN_IMAGE_HEIGHT[page]=100
+        SCAN_IMAGE_COLOR[page]=rgb
     done
 }
 
@@ -148,6 +154,8 @@ fourth=$(grep -n '/cleaned/page-4.png' "$test_dir/assembly.args" | cut -d: -f1)
 automatic_directory=$test_dir/automatic-scan
 mkdir "$automatic_directory"
 reset_state
+METRICS_ACTIVE=1
+METRIC_PAGE_TIMES=()
 PARALLEL_STATE=$test_dir/state \
 PARALLEL_ASSEMBLY_ARGS=$test_dir/assembly.args PARALLEL_PAGE_COUNT=7 \
 clean_scan_pdf "$source_pdf" "$test_dir/automatic.pdf" \
@@ -158,6 +166,12 @@ clean_scan_pdf "$source_pdf" "$test_dir/automatic.pdf" \
 
 [[ $(cat "$test_dir/state.maximum") -eq 5 ]]
 [[ -s $test_dir/automatic.pdf ]]
+[[ $METRIC_EFFECTIVE_WORKERS -eq 5 ]]
+[[ $METRIC_MAX_ACTIVE_WORKERS -eq 5 ]]
+[[ $METRIC_PAGES -eq 7 && $METRIC_TOTAL_PIXELS -eq 70000 ]]
+[[ ${#METRIC_PAGE_TIMES[@]} -eq 7 ]]
+METRICS_ACTIVE=0
+: "$METRICS_ACTIVE"
 
 short_automatic_directory=$test_dir/short-automatic-scan
 mkdir "$short_automatic_directory"

@@ -2,12 +2,12 @@
 
 # Safe PDF size reduction and scan cleanup with explicit input/output modes,
 # configurable image quality, reliable conversion, atomic publication,
-# metadata preservation, and replacement logging.
+# metadata preservation, replacement logging, and anonymous performance data.
 
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.3.0'
+VERSION='1.4.0'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -15,6 +15,8 @@ CONVERSION_POLICY_REVISION='1'
 DEFAULT_IMAGE_INPUT_DPI='300'
 MINIMUM_CREDIBLE_IMAGE_DPI='150'
 AUTOMATIC_SCAN_JOB_CAP='5'
+PERFORMANCE_SCHEMA_VERSION='1'
+PERFORMANCE_HEADER=$'schema_version\trecorded_at\tprogram_version\tos\toutcome\tfailure_stage\tcleanup_mode\tquality_policy\tsource_bytes\toutput_bytes\tpages\ttotal_pixels\tmin_page_pixels\tmedian_page_pixels\tmax_page_pixels\tcolor_pages\tgray_pages\tworker_selection\trequested_workers\teffective_workers\tmax_active_workers\tlogical_cpus\tphysical_cpus\tmemory_bytes\ttotal_seconds\tinspection_seconds\tcleanup_seconds\tpage_sum_seconds\tpage_min_seconds\tpage_median_seconds\tpage_max_seconds\tpage_times_seconds\tassembly_seconds\tghostscript_seconds'
 
 LOG_RECORD_PATHS=()
 LOG_RECORD_SIZES=()
@@ -32,6 +34,18 @@ VERBOSE=0
 SOURCE_CHECK_IDENTITY=''
 SOURCE_CHECK_METADATA_CHANGED=0
 ACTIVE_SCAN_WORKERS=()
+ACTIVE_METRICS_LOCK=''
+METRICS_WARNING_EMITTED=0
+METRICS_ACTIVE=0
+METRIC_FAILURE_STAGE='-'
+METRIC_PAGE_TIMES=()
+METRIC_OS='-'
+METRIC_LOGICAL_CPUS='-'
+METRIC_PHYSICAL_CPUS='-'
+METRIC_MEMORY_BYTES='-'
+SCAN_IMAGE_WIDTH=()
+SCAN_IMAGE_HEIGHT=()
+SCAN_IMAGE_COLOR=()
 
 usage() {
     cat <<EOF
@@ -80,7 +94,7 @@ Options:
                       checks remain enabled (requires --replace)
   --timeout DURATION  Per-file conversion timeout (default: 1h)
   --dry-run           Print planned actions; run no Ghostscript and write nothing
-  -v, --verbose       Report resolved settings and processing stages
+  -v, --verbose       Report resolved settings, stages, and scan performance
   --preserve-metadata MODE
                       Preserve none, basic, standard (default), or all metadata
   -h, --help          Show this help and exit
@@ -390,6 +404,295 @@ ensure_replacement_state_directory() {
         error "could not secure replacement state directory: $state_directory"
         return 1
     }
+}
+
+metrics_state_directory() {
+    local system_name
+
+    if [[ -n ${PDF_SLIM_STATE_DIR:-} ]]; then
+        [[ $PDF_SLIM_STATE_DIR == /* ]] || return 1
+        printf '%s\n' "$PDF_SLIM_STATE_DIR"
+        return 0
+    fi
+    [[ -n ${HOME:-} ]] || return 1
+    system_name=$(uname -s 2>/dev/null) || return 1
+    if [[ $system_name == Darwin ]]; then
+        printf '%s\n' "$HOME/Library/Application Support/pdf-slim"
+    else
+        printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/pdf-slim"
+    fi
+}
+
+ensure_metrics_state_directory() {
+    local state_directory=$1
+    local old_umask status
+
+    [[ ! -L $state_directory ]] || return 1
+    [[ ! -e $state_directory || -d $state_directory ]] || return 1
+    if [[ ! -d $state_directory ]]; then
+        old_umask=$(umask)
+        umask 077
+        mkdir -p -- "$state_directory"
+        status=$?
+        umask "$old_umask"
+        (( status == 0 )) || return 1
+    fi
+    chmod 700 "$state_directory" >/dev/null 2>&1
+}
+
+acquire_metrics_lock() {
+    local metrics_file=$1
+    local lock_dir=$metrics_file.lock
+    local attempts=0
+
+    while ! mkdir "$lock_dir" 2>/dev/null; do
+        ((attempts += 1))
+        (( attempts < 20 )) || return 1
+        sleep 0.1
+    done
+    ACTIVE_METRICS_LOCK=$lock_dir
+}
+
+release_metrics_lock() {
+    if [[ -n $ACTIVE_METRICS_LOCK ]]; then
+        rmdir "$ACTIVE_METRICS_LOCK" 2>/dev/null || true
+        ACTIVE_METRICS_LOCK=''
+    fi
+}
+
+metrics_warning() {
+    (( METRICS_WARNING_EMITTED == 0 )) || return 0
+    METRICS_WARNING_EMITTED=1
+    warn 'could not record scan-clean performance metrics; conversion results are unaffected'
+}
+
+append_performance_record() {
+    local record=$1
+    local state_directory metrics_file existing_header old_umask status=0
+
+    state_directory=$(metrics_state_directory) || return 1
+    ensure_metrics_state_directory "$state_directory" || return 1
+    metrics_file=$state_directory/performance.tsv
+    acquire_metrics_lock "$metrics_file" || return 1
+    if [[ -L $metrics_file || ( -e $metrics_file && ! -f $metrics_file ) ]]; then
+        release_metrics_lock
+        return 1
+    fi
+    if [[ ! -e $metrics_file ]]; then
+        old_umask=$(umask)
+        umask 077
+        printf '%s\n' "$PERFORMANCE_HEADER" >"$metrics_file" || status=1
+        umask "$old_umask"
+    else
+        IFS= read -r existing_header <"$metrics_file" || status=1
+        [[ $existing_header == "$PERFORMANCE_HEADER" ]] || status=1
+    fi
+    if (( status == 0 )); then
+        chmod 600 "$metrics_file" >/dev/null 2>&1 || status=1
+    fi
+    if (( status == 0 )); then
+        printf '%s\n' "$record" >>"$metrics_file" || status=1
+    fi
+    release_metrics_lock
+    (( status == 0 ))
+}
+
+detect_metrics_machine() {
+    local system_name
+
+    METRIC_OS=$(uname -s 2>/dev/null || printf '%s' '-')
+    METRIC_LOGICAL_CPUS='-'
+    METRIC_PHYSICAL_CPUS='-'
+    METRIC_MEMORY_BYTES='-'
+    system_name=$METRIC_OS
+    if [[ $system_name == Darwin ]]; then
+        METRIC_LOGICAL_CPUS=$(sysctl -n hw.logicalcpu 2>/dev/null || printf '%s' '-')
+        METRIC_PHYSICAL_CPUS=$(sysctl -n hw.physicalcpu 2>/dev/null || printf '%s' '-')
+        METRIC_MEMORY_BYTES=$(sysctl -n hw.memsize 2>/dev/null || printf '%s' '-')
+    else
+        METRIC_LOGICAL_CPUS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || printf '%s' '-')
+        if [[ -r /proc/meminfo ]]; then
+            METRIC_MEMORY_BYTES=$(awk '/^MemTotal:/ { print $2 * 1024; exit }' \
+                /proc/meminfo 2>/dev/null || printf '%s' '-')
+        fi
+    fi
+}
+
+metrics_median() {
+    local count middle left right value
+    local -a sorted=()
+
+    (( $# )) || { printf '%s\n' '-'; return; }
+    while IFS= read -r value; do
+        sorted[${#sorted[@]}]=$value
+    done < <(printf '%s\n' "$@" | LC_ALL=C sort -n)
+    count=${#sorted[@]}
+    middle=$((count / 2))
+    if (( count % 2 )); then
+        printf '%s\n' "${sorted[$middle]}"
+    else
+        left=${sorted[$((middle - 1))]}
+        right=${sorted[$middle]}
+        printf '%s\n' "$(((left + right) / 2))"
+    fi
+}
+
+reset_performance_metrics() {
+    METRICS_ACTIVE=1
+    METRIC_START_SECONDS=$SECONDS
+    METRIC_RECORDED_AT=$(date +%s 2>/dev/null || printf '%s' '-')
+    METRIC_OUTCOME='failed'
+    METRIC_FAILURE_STAGE='setup'
+    METRIC_SOURCE_BYTES='-'
+    METRIC_OUTPUT_BYTES='-'
+    METRIC_PAGES='-'
+    METRIC_TOTAL_PIXELS='-'
+    METRIC_MIN_PAGE_PIXELS='-'
+    METRIC_MEDIAN_PAGE_PIXELS='-'
+    METRIC_MAX_PAGE_PIXELS='-'
+    METRIC_COLOR_PAGES='-'
+    METRIC_GRAY_PAGES='-'
+    METRIC_WORKER_SELECTION=auto
+    METRIC_REQUESTED_WORKERS='-'
+    METRIC_EFFECTIVE_WORKERS='-'
+    METRIC_MAX_ACTIVE_WORKERS='-'
+    METRIC_TOTAL_SECONDS='-'
+    METRIC_INSPECTION_SECONDS='-'
+    METRIC_CLEANUP_SECONDS='-'
+    METRIC_PAGE_SUM_SECONDS='-'
+    METRIC_PAGE_MIN_SECONDS='-'
+    METRIC_PAGE_MEDIAN_SECONDS='-'
+    METRIC_PAGE_MAX_SECONDS='-'
+    METRIC_PAGE_TIMES_TEXT='-'
+    METRIC_ASSEMBLY_SECONDS='-'
+    METRIC_GHOSTSCRIPT_SECONDS='-'
+    METRIC_PAGE_TIMES=()
+    if [[ ${jobs:-auto} != auto ]]; then
+        METRIC_WORKER_SELECTION=explicit
+        METRIC_REQUESTED_WORKERS=$jobs
+    fi
+}
+
+collect_scan_shape_metrics() {
+    local page pixels total=0 color_pages=0 gray_pages=0
+    local -a page_pixels=()
+
+    METRIC_PAGES=$SCAN_PAGE_COUNT
+    for (( page = 1; page <= SCAN_PAGE_COUNT; page += 1 )); do
+        pixels=$((${SCAN_IMAGE_WIDTH[$page]} * ${SCAN_IMAGE_HEIGHT[$page]}))
+        page_pixels[${#page_pixels[@]}]=$pixels
+        total=$((total + pixels))
+        case ${SCAN_IMAGE_COLOR[$page]} in
+            gray|mono) gray_pages=$((gray_pages + 1)) ;;
+            *) color_pages=$((color_pages + 1)) ;;
+        esac
+    done
+    METRIC_TOTAL_PIXELS=$total
+    METRIC_MIN_PAGE_PIXELS=$(printf '%s\n' "${page_pixels[@]}" | \
+        LC_ALL=C sort -n | sed -n '1p')
+    METRIC_MAX_PAGE_PIXELS=$(printf '%s\n' "${page_pixels[@]}" | \
+        LC_ALL=C sort -n | tail -n 1)
+    METRIC_MEDIAN_PAGE_PIXELS=$(metrics_median "${page_pixels[@]}")
+    METRIC_COLOR_PAGES=$color_pages
+    METRIC_GRAY_PAGES=$gray_pages
+}
+
+summarize_page_metrics() {
+    local duration sum=0 text=''
+    local -a available=()
+
+    for duration in "${METRIC_PAGE_TIMES[@]}"; do
+        [[ $duration =~ ^[0-9]+$ ]] || continue
+        available[${#available[@]}]=$duration
+        sum=$((sum + duration))
+        if [[ -n $text ]]; then
+            text=$text,$duration
+        else
+            text=$duration
+        fi
+    done
+    (( ${#available[@]} )) || return 0
+    METRIC_PAGE_SUM_SECONDS=$sum
+    METRIC_PAGE_MIN_SECONDS=$(printf '%s\n' "${available[@]}" | \
+        LC_ALL=C sort -n | sed -n '1p')
+    METRIC_PAGE_MAX_SECONDS=$(printf '%s\n' "${available[@]}" | \
+        LC_ALL=C sort -n | tail -n 1)
+    METRIC_PAGE_MEDIAN_SECONDS=$(metrics_median "${available[@]}")
+    METRIC_PAGE_TIMES_TEXT=$text
+}
+
+performance_quality_policy() {
+    printf 'quality=%s,max-dpi=%s,jpeg=%s,grayscale=%s' \
+        "$quality" "${max_dpi:-none}" "${jpeg_recompress:-pass-through}" \
+        "$grayscale"
+}
+
+format_metric_pixels() {
+    awk -v value="$1" 'BEGIN {
+        if (value >= 1000000) printf "%.1fMP", value / 1000000
+        else printf "%dpx", value
+    }'
+}
+
+format_metric_bytes() {
+    awk -v value="$1" 'BEGIN {
+        if (value >= 1048576) printf "%.1fMiB", value / 1048576
+        else if (value >= 1024) printf "%.1fKiB", value / 1024
+        else printf "%dB", value
+    }'
+}
+
+finish_performance_metrics() {
+    local status=$1
+    local quality_policy record summary display_value
+
+    METRIC_TOTAL_SECONDS=$((SECONDS - METRIC_START_SECONDS))
+    summarize_page_metrics
+    if (( status == 0 )); then
+        METRIC_OUTCOME=success
+        METRIC_FAILURE_STAGE='-'
+    fi
+    quality_policy=$(performance_quality_policy)
+    record=$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
+        "$PERFORMANCE_SCHEMA_VERSION" "$METRIC_RECORDED_AT" "$VERSION" \
+        "$METRIC_OS" "$METRIC_OUTCOME" "$METRIC_FAILURE_STAGE" \
+        "$clean_scan" "$quality_policy" "$METRIC_SOURCE_BYTES" \
+        "$METRIC_OUTPUT_BYTES" "$METRIC_PAGES" "$METRIC_TOTAL_PIXELS" \
+        "$METRIC_MIN_PAGE_PIXELS" "$METRIC_MEDIAN_PAGE_PIXELS" \
+        "$METRIC_MAX_PAGE_PIXELS" "$METRIC_COLOR_PAGES" \
+        "$METRIC_GRAY_PAGES" "$METRIC_WORKER_SELECTION" \
+        "$METRIC_REQUESTED_WORKERS" "$METRIC_EFFECTIVE_WORKERS" \
+        "$METRIC_MAX_ACTIVE_WORKERS" "$METRIC_LOGICAL_CPUS" \
+        "$METRIC_PHYSICAL_CPUS" "$METRIC_MEMORY_BYTES" \
+        "$METRIC_TOTAL_SECONDS" "$METRIC_INSPECTION_SECONDS" \
+        "$METRIC_CLEANUP_SECONDS" "$METRIC_PAGE_SUM_SECONDS" \
+        "$METRIC_PAGE_MIN_SECONDS" "$METRIC_PAGE_MEDIAN_SECONDS" \
+        "$METRIC_PAGE_MAX_SECONDS" "$METRIC_PAGE_TIMES_TEXT" \
+        "$METRIC_ASSEMBLY_SECONDS" "$METRIC_GHOSTSCRIPT_SECONDS")
+    # Prevent signal cleanup from trying to finalize the same attempt again
+    # while its record is being appended.
+    METRICS_ACTIVE=0
+    append_performance_record "$record" || metrics_warning
+    summary="metrics: $METRIC_OUTCOME"
+    [[ $METRIC_FAILURE_STAGE == - ]] || \
+        summary="$summary stage=$METRIC_FAILURE_STAGE"
+    [[ $METRIC_PAGES == - ]] || summary="$summary pages=$METRIC_PAGES"
+    [[ $METRIC_EFFECTIVE_WORKERS == - ]] || \
+        summary="$summary workers=$METRIC_EFFECTIVE_WORKERS($METRIC_WORKER_SELECTION)"
+    if [[ $METRIC_TOTAL_PIXELS != - ]]; then
+        display_value=$(format_metric_pixels "$METRIC_TOTAL_PIXELS")
+        summary="$summary pixels=$display_value"
+    fi
+    [[ $METRIC_PAGE_MIN_SECONDS == - ]] || \
+        summary="$summary page-time=$METRIC_PAGE_MIN_SECONDS/$METRIC_PAGE_MEDIAN_SECONDS/${METRIC_PAGE_MAX_SECONDS}s"
+    [[ $METRIC_CLEANUP_SECONDS == - ]] || \
+        summary="$summary cleanup=${METRIC_CLEANUP_SECONDS}s"
+    summary="$summary total=${METRIC_TOTAL_SECONDS}s"
+    if [[ $METRIC_OUTPUT_BYTES != - ]]; then
+        display_value=$(format_metric_bytes "$METRIC_OUTPUT_BYTES")
+        summary="$summary output=$display_value"
+    fi
+    verbose "$summary"
 }
 
 processing_signature() {
@@ -896,8 +1199,22 @@ clean_scan_page() (
     local rendered=$scan_directory/rendered/page-$page
     local cleaned=$scan_directory/cleaned/page-$page.png
     local command_output=$scan_directory/workers/page-$page.command-output
+    local metrics_output=$scan_directory/workers/page-$page.metrics
     local child_pid=''
-    local status
+    local status started=$SECONDS
+
+    # Invoked indirectly by the EXIT trap below.
+    # shellcheck disable=SC2329
+    finish_worker_metrics() {
+        local worker_status=$?
+
+        trap - EXIT
+        if (( METRICS_ACTIVE )); then
+            printf '%s\n' "$((SECONDS - started))" >"$metrics_output" || true
+        fi
+        rm -f -- "$command_output"
+        exit "$worker_status"
+    }
 
     # Invoked indirectly by the signal traps below.
     # shellcheck disable=SC2329
@@ -940,6 +1257,7 @@ clean_scan_page() (
     trap 'stop_worker_child 129' HUP
     trap 'stop_worker_child 130' INT
     trap 'stop_worker_child 143' TERM
+    trap finish_worker_metrics EXIT
 
     verbose "rendering page $page of $page_count: $source"
     run_page_command 'scan page rendering' \
@@ -959,7 +1277,6 @@ clean_scan_page() (
         error "scan cleanup produced no page image (page $page): $source"
         exit 1
     fi
-    rm -f -- "$command_output"
 )
 
 inspect_scan_pdf() {
@@ -1095,6 +1412,9 @@ inspect_scan_pdf() {
         "$timeout_duration" "$pdfimages_command" -list "$source" || return 1
     SCAN_X_DPI=()
     SCAN_Y_DPI=()
+    SCAN_IMAGE_WIDTH=()
+    SCAN_IMAGE_HEIGHT=()
+    SCAN_IMAGE_COLOR=()
     while read -r -a fields; do
         page=${fields[0]:-}
         [[ $page =~ ^[1-9][0-9]*$ ]] || continue
@@ -1122,6 +1442,9 @@ inspect_scan_pdf() {
                 image_keys[page]=$image_key
                 SCAN_X_DPI[page]=$x_dpi
                 SCAN_Y_DPI[page]=$y_dpi
+                SCAN_IMAGE_WIDTH[page]=$width
+                SCAN_IMAGE_HEIGHT[page]=$height
+                SCAN_IMAGE_COLOR[page]=$color
                 ;;
             smask)
                 if [[ $color != gray || $components != 1 ]]; then
@@ -1199,17 +1522,33 @@ clean_scan_pdf() {
     local jobs=${15:-auto}
     local page rendered cleaned dimensions pixel_width pixel_height
     local output_x_dpi output_y_dpi
-    local worker_pid worker_log worker_status
+    local worker_pid worker_log worker_status worker_page worker_metrics
+    local worker_duration
+    local stage_start
     local next_page=1 failed=0
     local -a assembly_args=()
     local -a worker_pids=()
     local -a worker_logs=()
+    local -a worker_pages=()
 
     verbose "inspecting PDF for safe image-only cleanup: $source"
-    inspect_scan_pdf "$source" "$scan_directory" "$timeout_command" \
+    if (( METRICS_ACTIVE )); then
+        METRIC_FAILURE_STAGE=inspection
+        stage_start=$SECONDS
+    fi
+    if ! inspect_scan_pdf "$source" "$scan_directory" "$timeout_command" \
         "$timeout_duration" "$gs_command" "$magick_command" \
         "$pdfinfo_command" "$pdfimages_command" "$pdftotext_command" \
-        "$pdfdetach_command" || return 1
+        "$pdfdetach_command"; then
+        if (( METRICS_ACTIVE )); then
+            METRIC_INSPECTION_SECONDS=$((SECONDS - stage_start))
+        fi
+        return 1
+    fi
+    if (( METRICS_ACTIVE )); then
+        METRIC_INSPECTION_SECONDS=$((SECONDS - stage_start))
+        collect_scan_shape_metrics
+    fi
     verbose "scan inspection accepted $SCAN_PAGE_COUNT page(s): $source"
     if [[ $jobs == auto ]]; then
         jobs=$SCAN_PAGE_COUNT
@@ -1219,6 +1558,12 @@ clean_scan_pdf() {
         verbose "scan cleanup workers: $jobs (automatic for $SCAN_PAGE_COUNT page(s))"
     else
         verbose "scan cleanup workers: $jobs (explicit for $SCAN_PAGE_COUNT page(s))"
+    fi
+    if (( METRICS_ACTIVE )); then
+        METRIC_EFFECTIVE_WORKERS=$jobs
+        METRIC_MAX_ACTIVE_WORKERS=0
+        METRIC_FAILURE_STAGE='page-cleanup'
+        stage_start=$SECONDS
     fi
     mkdir "$scan_directory/rendered" "$scan_directory/cleaned" \
         "$scan_directory/workers" || return 1
@@ -1234,14 +1579,30 @@ clean_scan_pdf() {
             ACTIVE_SCAN_WORKERS[${#ACTIVE_SCAN_WORKERS[@]}]=$worker_pid
             worker_pids[${#worker_pids[@]}]=$worker_pid
             worker_logs[${#worker_logs[@]}]=$worker_log
+            worker_pages[${#worker_pages[@]}]=$next_page
+            if (( METRICS_ACTIVE && \
+                ${#worker_pids[@]} > METRIC_MAX_ACTIVE_WORKERS )); then
+                METRIC_MAX_ACTIVE_WORKERS=${#worker_pids[@]}
+            fi
             ((next_page += 1))
         done
         (( ${#worker_pids[@]} )) || break
         worker_pid=${worker_pids[0]}
         worker_log=${worker_logs[0]}
+        worker_page=${worker_pages[0]}
         wait "$worker_pid"
         worker_status=$?
         remove_active_scan_worker "$worker_pid"
+        if (( METRICS_ACTIVE )); then
+            worker_metrics=$scan_directory/workers/page-$worker_page.metrics
+            if [[ -s $worker_metrics ]]; then
+                IFS= read -r worker_duration <"$worker_metrics" || \
+                    worker_duration='-'
+                METRIC_PAGE_TIMES[worker_page]=$worker_duration
+            else
+                METRIC_PAGE_TIMES[worker_page]='-'
+            fi
+        fi
         if [[ -s $worker_log ]]; then
             OPERATIONAL_LAST_STREAM=stderr
             while IFS= read -r rendered; do
@@ -1251,9 +1612,17 @@ clean_scan_pdf() {
         (( worker_status == 0 )) || failed=1
         worker_pids=( "${worker_pids[@]:1}" )
         worker_logs=( "${worker_logs[@]:1}" )
+        worker_pages=( "${worker_pages[@]:1}" )
     done
+    if (( METRICS_ACTIVE )); then
+        METRIC_CLEANUP_SECONDS=$((SECONDS - stage_start))
+    fi
     (( failed == 0 )) || return 1
 
+    if (( METRICS_ACTIVE )); then
+        METRIC_FAILURE_STAGE=assembly
+        stage_start=$SECONDS
+    fi
     page=1
     while (( page <= SCAN_PAGE_COUNT )); do
         cleaned=$scan_directory/cleaned/page-$page.png
@@ -1289,6 +1658,9 @@ clean_scan_pdf() {
     if [[ ! -f $cleaned_pdf || -L $cleaned_pdf || ! -s $cleaned_pdf ]]; then
         error "scan cleanup produced no valid nonempty PDF: $source"
         return 1
+    fi
+    if (( METRICS_ACTIVE )); then
+        METRIC_ASSEMBLY_SECONDS=$((SECONDS - stage_start))
     fi
 }
 
@@ -1747,9 +2119,10 @@ clear_active_files() {
     ACTIVE_METADATA_REFERENCE=''
     ACTIVE_SCAN_DIRECTORY=''
     release_log_lock
+    release_metrics_lock
 }
 
-process_source() {
+process_source_core() {
     local source=$1
     local relative=$2
     local destination=$3
@@ -1758,7 +2131,7 @@ process_source() {
     local source_content_before source_fingerprint
     local timestamp_reference=''
     local scan_directory='' conversion_source=$source
-    local original_size candidate_size
+    local original_size candidate_size metrics_stage_start
 
     PROCESS_OUTCOME=''
     PROCESS_ARTIFACT=''
@@ -1848,12 +2221,24 @@ process_source() {
         }
     fi
     verbose "optimizing PDF with Ghostscript: $source"
-    convert_pdf "$conversion_source" "$candidate" "$timeout_command" "$gs_command" \
-        "$timeout_duration" "$grayscale" "$quality" "$max_dpi" \
-        "$jpeg_recompress" || {
+    if (( METRICS_ACTIVE )); then
+        METRIC_FAILURE_STAGE=ghostscript
+        metrics_stage_start=$SECONDS
+    fi
+    if ! convert_pdf "$conversion_source" "$candidate" "$timeout_command" \
+        "$gs_command" "$timeout_duration" "$grayscale" "$quality" \
+        "$max_dpi" "$jpeg_recompress"; then
+        if (( METRICS_ACTIVE )); then
+            METRIC_GHOSTSCRIPT_SECONDS=$((SECONDS - metrics_stage_start))
+        fi
         clear_active_files
         return 1
-    }
+    fi
+    if (( METRICS_ACTIVE )); then
+        METRIC_GHOSTSCRIPT_SECONDS=$((SECONDS - metrics_stage_start))
+        METRIC_OUTPUT_BYTES=$(file_size "$candidate" 2>/dev/null || printf '%s' '-')
+        METRIC_FAILURE_STAGE=postprocessing
+    fi
     verbose "converted PDF validation passed: $source"
     remove_scan_directory "$scan_directory" || {
         clear_active_files
@@ -1895,6 +2280,9 @@ process_source() {
         fi
     fi
 
+    if (( METRICS_ACTIVE )); then
+        METRIC_FAILURE_STAGE=publication
+    fi
     if [[ $mode != replace && ( -e $destination || -L $destination ) ]]; then
         error "output destination appeared during conversion: $destination"
         clear_active_files
@@ -1955,9 +2343,32 @@ process_source() {
     fi
 }
 
+process_source() {
+    local source=$1
+    local source_type=${4:-pdf}
+    local status
+
+    if [[ $source_type != pdf || -z ${clean_scan:-} ]]; then
+        process_source_core "$@"
+        return
+    fi
+    reset_performance_metrics
+    METRIC_SOURCE_BYTES=$(file_size "$source" 2>/dev/null || printf '%s' '-')
+    process_source_core "$@"
+    status=$?
+    finish_performance_metrics "$status"
+    return "$status"
+}
+
 cleanup_active_candidate() {
     local status=$?
     clear_active_files
+    if (( METRICS_ACTIVE )); then
+        if (( status >= 128 )); then
+            METRIC_FAILURE_STAGE=interruption
+        fi
+        finish_performance_metrics "$status"
+    fi
     finish_operational_output
     trap - EXIT
     exit "$status"
@@ -2474,6 +2885,7 @@ main() {
             error 'Poppler is required for --clean-scan (pdftocairo was not found)'
             return 1
         }
+        detect_metrics_machine
     fi
     trap cleanup_active_candidate EXIT
     trap 'exit 129' HUP

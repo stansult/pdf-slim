@@ -10,6 +10,7 @@ cleanup() {
     rm -rf -- "$test_dir"
 }
 trap cleanup EXIT HUP INT TERM
+export PDF_SLIM_STATE_DIR=$test_dir/state
 
 for command_name in gs magick pdfinfo pdfimages pdftotext pdfdetach pdftocairo; do
     command -v "$command_name" >/dev/null 2>&1 || {
@@ -17,6 +18,7 @@ for command_name in gs magick pdfinfo pdfimages pdftotext pdfdetach pdftocairo; 
         exit 1
     }
 done
+
 command -v timeout >/dev/null 2>&1 || command -v gtimeout >/dev/null 2>&1 || {
     printf '%s\n' 'scan cleanup test requires GNU timeout or gtimeout' >&2
     exit 1
@@ -50,7 +52,11 @@ for cleanup_mode in gentle standard strong; do
     else
         "$project_dir/pdf-slim.sh" --input "$scan_pdf" \
             --output "$output_pdf" --clean-scan "$cleanup_mode" \
-            --preserve-metadata none >/dev/null
+            --preserve-metadata none >/dev/null 2>"$test_dir/$cleanup_mode.err"
+        if grep -q 'metrics:' "$test_dir/$cleanup_mode.err"; then
+            printf '%s\n' 'non-verbose cleanup unexpectedly printed metrics' >&2
+            exit 1
+        fi
     fi
     [[ -s $output_pdf ]]
     gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$output_pdf"
@@ -61,6 +67,25 @@ for cleanup_mode in gentle standard strong; do
         '$1 == 1 && $2 == 0 && $3 == "image" && $9 == "jpeg" { found = 1 }
         END { exit !found }'
 done
+
+metrics_file=$PDF_SLIM_STATE_DIR/performance.tsv
+[[ -f $metrics_file && ! -L $metrics_file ]]
+[[ $(stat -f '%Lp' "$PDF_SLIM_STATE_DIR") == 700 ]]
+[[ $(stat -f '%Lp' "$metrics_file") == 600 ]]
+[[ $(wc -l <"$metrics_file" | tr -d ' ') -eq 4 ]]
+awk -F '\t' '
+    NR == 1 { exit !(NF == 34 && $1 == "schema_version" && $34 == "ghostscript_seconds") }
+    NR > 1 {
+        if (NF != 34 || $1 != 1 || $5 != "success" || $6 != "-" ||
+            $11 != 1 || $18 != "auto" || $20 != 1 || $21 != 1) exit 1
+    }
+' "$metrics_file"
+if grep -Fq -- "$scan_pdf" "$metrics_file"; then
+    printf '%s\n' 'metrics unexpectedly contain the scan source path' >&2
+    exit 1
+fi
+grep -q 'verbose: metrics: success pages=1 workers=1(auto)' \
+    "$test_dir/standard.err"
 
 alpha_png=$test_dir/alpha-scan.png
 alpha_pdf=$test_dir/alpha-scan.pdf
@@ -210,6 +235,12 @@ fi
 [[ ! -e $vector_output ]]
 grep -Eq 'searchable text|exactly one image|visible text or vector content' \
     "$test_dir/vector.err"
+if grep -q 'metrics:' "$test_dir/vector.err"; then
+    printf '%s\n' 'non-verbose failure unexpectedly printed metrics' >&2
+    exit 1
+fi
+awk -F '\t' 'END { exit !($5 == "failed" && $6 == "inspection") }' \
+    "$metrics_file"
 
 batch_output=$test_dir/batch
 if "$project_dir/pdf-slim.sh" --input "$scan_pdf" --input "$vector_pdf" \

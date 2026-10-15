@@ -69,6 +69,13 @@ Linux:  ${XDG_STATE_HOME:-$HOME/.local/state}/pdf-slim/processed_pdfs.log
 `PDF_SLIM_STATE_DIR` accepts an absolute override. The state directory uses
 mode `700`; the log uses mode `600`.
 
+PDF scan-clean performance records use `performance.tsv` in the same private
+state directory. They contain workload, concurrency, timing, machine-capacity,
+size, and outcome fields, but no paths, filenames, hashes, extracted text, or
+document content. The metrics file uses mode `600`. Recording failure produces
+at most one warning per invocation and never changes conversion or publication
+results.
+
 The version-2 null-delimited log records canonical path, byte size,
 modification time, resolved processing signature, outcome, processing time, and
 an optional related artifact. An unchanged file is skipped only when its
