@@ -10,7 +10,9 @@ case $command_name in
         case " $* " in
             *' -f '*)
                 if [[ $mode != geometry ]]; then
-                    printf '%s\n' 'Page 1 size: 612 x 792 pts'
+                    printf '%s\n' \
+                        'Page 1 size: 612 x 792 pts' \
+                        "Page 1 rot: $([[ $mode == rotated ]] && printf 90 || printf 0)"
                 fi
                 ;;
             *' -url '*)

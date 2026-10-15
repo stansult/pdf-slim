@@ -26,6 +26,8 @@ printf '%s\n' '%PDF-1.7 inspection fixture' >"$source_pdf"
 "$bin_dir/pdfinfo" "$source_pdf" | grep -q '^Pages: 1$'
 "$bin_dir/pdfinfo" -f 1 -l 1 -box "$source_pdf" | \
     grep -q '^Page 1 size: 612 x 792 pts$'
+"$bin_dir/pdfinfo" -f 1 -l 1 -box "$source_pdf" | \
+    grep -q '^Page 1 rot: 0$'
 "$bin_dir/pdfimages" -list "$source_pdf" | awk \
     '$1 == 1 && $3 == "image" && $13 == 300 && $14 == 300 { found = 1 }
     END { exit !found }'
@@ -75,8 +77,18 @@ run_inspection "$valid_directory"
 [[ $SCAN_PAGE_COUNT -eq 1 ]]
 [[ ${SCAN_PAGE_WIDTH[1]} == 612 ]]
 [[ ${SCAN_PAGE_HEIGHT[1]} == 792 ]]
+[[ ${SCAN_PAGE_ROTATION[1]} == 0 ]]
 [[ ${SCAN_X_DPI[1]} == 300 ]]
 [[ ${SCAN_Y_DPI[1]} == 300 ]]
+
+rotated_directory=$test_dir/rotated
+mkdir "$rotated_directory"
+FAKE_SCAN_INSPECTION_MODE=rotated
+export FAKE_SCAN_INSPECTION_MODE
+run_inspection "$rotated_directory"
+[[ ${SCAN_PAGE_WIDTH[1]} == 792 ]]
+[[ ${SCAN_PAGE_HEIGHT[1]} == 612 ]]
+[[ ${SCAN_PAGE_ROTATION[1]} == 90 ]]
 
 smask_directory=$test_dir/smask-valid
 mkdir "$smask_directory"

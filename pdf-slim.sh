@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.2.2'
+VERSION='1.2.3'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -869,7 +869,7 @@ inspect_scan_pdf() {
     local pdfdetach_command=${10}
     local pages encrypted form javascript compact page type
     local width height color components object generation x_dpi y_dpi
-    local page_width page_height minimum residual image_key
+    local page_width page_height page_rotation swap minimum residual image_key
     local i
     local -a image_counts=()
     local -a smask_counts=()
@@ -909,24 +909,44 @@ inspect_scan_pdf() {
         "$source" || return 1
     SCAN_PAGE_WIDTH=()
     SCAN_PAGE_HEIGHT=()
+    SCAN_PAGE_ROTATION=()
     while read -r -a fields; do
-        [[ ${fields[0]:-} == Page && ${fields[2]:-} == size: ]] || continue
+        [[ ${fields[0]:-} == Page ]] || continue
         page=${fields[1]:-}
-        page_width=${fields[3]:-}
-        page_height=${fields[5]:-}
-        if [[ $page =~ ^[1-9][0-9]*$ &&
-            $page_width =~ ^[0-9]+([.][0-9]+)?$ &&
-            $page_height =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-            SCAN_PAGE_WIDTH[page]=$page_width
-            SCAN_PAGE_HEIGHT[page]=$page_height
-        fi
+        [[ $page =~ ^[1-9][0-9]*$ ]] || continue
+        case ${fields[2]:-} in
+            size:)
+                page_width=${fields[3]:-}
+                page_height=${fields[5]:-}
+                if [[ $page_width =~ ^[0-9]+([.][0-9]+)?$ &&
+                    $page_height =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+                    SCAN_PAGE_WIDTH[page]=$page_width
+                    SCAN_PAGE_HEIGHT[page]=$page_height
+                fi
+                ;;
+            rot:)
+                page_rotation=${fields[3]:-}
+                if [[ $page_rotation =~ ^(0|90|180|270)$ ]]; then
+                    SCAN_PAGE_ROTATION[page]=$page_rotation
+                fi
+                ;;
+        esac
     done <<<"$SCAN_COMMAND_OUTPUT"
     i=1
     while (( i <= pages )); do
-        if [[ -z ${SCAN_PAGE_WIDTH[$i]:-} || -z ${SCAN_PAGE_HEIGHT[$i]:-} ]]; then
+        if [[ -z ${SCAN_PAGE_WIDTH[$i]:-} ||
+            -z ${SCAN_PAGE_HEIGHT[$i]:-} ||
+            -z ${SCAN_PAGE_ROTATION[$i]:-} ]]; then
             error "could not determine page geometry for scan cleanup (page $i): $source"
             return 1
         fi
+        case ${SCAN_PAGE_ROTATION[$i]} in
+            90|270)
+                swap=${SCAN_PAGE_WIDTH[i]}
+                SCAN_PAGE_WIDTH[i]=${SCAN_PAGE_HEIGHT[i]}
+                SCAN_PAGE_HEIGHT[i]=$swap
+                ;;
+        esac
         ((i += 1))
     done
 
@@ -1121,9 +1141,11 @@ clean_scan_pdf() {
             -v points="${SCAN_PAGE_HEIGHT[$page]}" \
             'BEGIN { printf "%.8f", pixels * 72 / points }')
         assembly_args+=(
-            -units PixelsPerInch
-            -density "${output_x_dpi}x${output_y_dpi}"
+            '('
             "$cleaned"
+            -set units PixelsPerInch
+            -set density "${output_x_dpi}x${output_y_dpi}"
+            ')'
         )
         ((page += 1))
     done

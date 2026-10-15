@@ -128,6 +128,70 @@ pdfimages -list "$multi_output" | awk \
     '$1 ~ /^[12]$/ && $3 == "image" && $6 == "gray" { pages[$1] = 1 }
     END { exit !(pages[1] && pages[2]) }'
 
+# Build a real image-only PDF whose four identical portrait page boxes use
+# every standard page rotation. This independently proves the fixture contract
+# and catches reconstruction that flattens rotation into pixels without using
+# the corresponding visible page dimensions.
+rotation_png=$test_dir/rotation.png
+rotation_large_png=$test_dir/rotation-large.png
+rotation_72_ps=$test_dir/rotation-72.ps
+rotation_108_ps=$test_dir/rotation-108.ps
+rotation_pdf=$test_dir/rotation.pdf
+rotation_output=$test_dir/rotation-cleaned.pdf
+magick -size 200x300 xc:'#dddddd' -fill '#222222' \
+    -draw 'rectangle 15,20 185,35 rectangle 15,80 80,95' "$rotation_png"
+magick "$rotation_png" -resize 300x450 "$rotation_large_png"
+magick -units PixelsPerInch -density 72 "$rotation_png" "$rotation_72_ps"
+magick -units PixelsPerInch -density 108 "$rotation_large_png" \
+    "$rotation_108_ps"
+gs -q -dBATCH -dNOPAUSE -sDEVICE=pdfwrite \
+    "-sOutputFile=$rotation_pdf" \
+    -c '<</PageSize [200 300]>> setpagedevice
+        /pagecounter 0 def
+        /originalshowpage /showpage load def
+        /showpage {
+            /pagecounter pagecounter 1 add def
+            pagecounter 2 eq { [ /Rotate 90 /PAGE pdfmark } if
+            pagecounter 3 eq { [ /Rotate 180 /PAGE pdfmark } if
+            pagecounter 4 eq { [ /Rotate 270 /PAGE pdfmark } if
+            originalshowpage
+        } bind def' \
+    -f "$rotation_72_ps" "$rotation_108_ps" \
+        "$rotation_72_ps" "$rotation_108_ps"
+pdfinfo -f 1 -l 4 -box "$rotation_pdf" | awk '
+    $1 == "Page" && $3 == "size:" { width[$2] = $4; height[$2] = $6 }
+    $1 == "Page" && $3 == "rot:" { rotation[$2] = $4 }
+    END {
+        exit !(width[1] == 200 && height[1] == 300 && rotation[1] == 0 &&
+            width[2] == 200 && height[2] == 300 && rotation[2] == 90 &&
+            width[3] == 200 && height[3] == 300 && rotation[3] == 180 &&
+            width[4] == 200 && height[4] == 300 && rotation[4] == 270)
+    }'
+pdfimages -list "$rotation_pdf" | awk '
+    $3 == "image" { images[$1] += 1; dpi[$1] = $13 "x" $14 }
+    END { exit !(images[1] == 1 && dpi[1] == "72x72" &&
+        images[2] == 1 && dpi[2] == "108x108" &&
+        images[3] == 1 && dpi[3] == "72x72" &&
+        images[4] == 1 && dpi[4] == "108x108") }'
+"$project_dir/pdf-slim.sh" --input "$rotation_pdf" \
+    --output "$rotation_output" --clean-scan standard \
+    --quality preserve --preserve-metadata none >/dev/null
+pdfinfo -f 1 -l 4 -box "$rotation_output" | awk '
+    $1 == "Page" && $3 == "size:" { width[$2] = $4; height[$2] = $6 }
+    $1 == "Page" && $3 == "rot:" { rotation[$2] = $4 }
+    END {
+        exit !(width[1] == 200 && height[1] == 300 && rotation[1] == 0 &&
+            width[2] == 300 && height[2] == 200 && rotation[2] == 0 &&
+            width[3] == 200 && height[3] == 300 && rotation[3] == 0 &&
+            width[4] == 300 && height[4] == 200 && rotation[4] == 0)
+    }'
+pdfimages -list "$rotation_output" | awk '
+    $3 == "image" { images[$1] += 1; square[$1] = ($13 == $14) }
+    END { exit !(images[1] == 1 && square[1] &&
+        images[2] == 1 && square[2] && images[3] == 1 && square[3] &&
+        images[4] == 1 && square[4]) }'
+gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$rotation_output"
+
 vector_ps=$test_dir/vector.ps
 vector_pdf=$test_dir/vector.pdf
 vector_output=$test_dir/vector-cleaned.pdf

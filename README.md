@@ -9,7 +9,7 @@ directly to raster images.
 Use `pdf-slim.sh` when the output should be a PDF. Use `scan-clean.sh` when the
 output should remain an image.
 
-Current versions: `pdf-slim.sh` 1.2.2 and `scan-clean.sh` 1.0.1.
+Current versions: `pdf-slim.sh` 1.2.3 and `scan-clean.sh` 1.0.1.
 
 ## Current capabilities
 
@@ -41,6 +41,8 @@ Current versions: `pdf-slim.sh` 1.2.2 and `scan-clean.sh` 1.0.1.
   matching identity and processing settings.
 - Offers gentle, standard, and strong contrast cleanup for safely detected
   image-only scans while retaining their page size, resolution, and color.
+- Preserves the visible page dimensions of rotated scans when cleanup flattens
+  90- or 270-degree PDF page rotation into the rendered pixels.
 - Accepts a page image with one structurally associated grayscale soft mask;
   independent, multiple, or mismatched masks remain unsafe.
 - Delegates PDF page pixel cleanup to the companion `scan-clean.sh` engine so
@@ -622,14 +624,15 @@ tests/                       Automated conversion, publication, logging, and CLI
 
 ## Release status
 
-`pdf-slim.sh` version 1.2.2 delegates guarded PDF scan pixel cleanup to the
+`pdf-slim.sh` version 1.2.3 delegates guarded PDF scan pixel cleanup to the
 companion `scan-clean.sh` engine while retaining PDF-specific inspection,
 metadata, quality, publication, replacement, and logging safeguards.
 It also accepts raster scans directly and creates cleaned PDFs through the same
-engine and PDF quality pipeline. Version 1.2.2 accepts one structurally
-associated image soft mask per PDF page while continuing to reject unrelated or
-mismatched image objects. It also retains the 1.2.1 content-aware handling of
-metadata-only source changes in cloud-synchronized folders.
+engine and PDF quality pipeline. Version 1.2.3 preserves visible page geometry
+when 90- or 270-degree PDF rotation is flattened during cleanup. It retains the
+1.2.2 acceptance of one structurally associated image soft mask per PDF page
+and the 1.2.1 content-aware handling of metadata-only source changes in
+cloud-synchronized folders.
 `scan-clean.sh` version 1.0.1 applies the shared adaptive cleanup directly to
 single-frame raster images with safe standalone and batch publication, and now
 uses the same content-aware source-change protection as `pdf-slim.sh`. Future

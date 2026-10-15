@@ -42,7 +42,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.2.2' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.2.3' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2

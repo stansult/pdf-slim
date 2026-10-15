@@ -57,7 +57,7 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-`pdf-slim.sh` 1.2.2 implements safe traversal, dry-run planning, reliable
+`pdf-slim.sh` 1.2.3 implements safe traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
 state directory, guarded image-only scan cleanup, and timestamped operational
@@ -230,6 +230,9 @@ The user has approved these decisions:
     most one grayscale, single-component `smask` only when its PDF object and
     generation, pixel dimensions, and X/Y resolution match the primary image.
     Continue refusing standalone, multiple, mismatched, or other mask objects.
+18. When PDF cleanup rendering flattens page rotation into pixels, preserve the
+    visible page geometry: swap effective width and height for 90- and
+    270-degree pages, and retain them for 0- and 180-degree pages.
 
 Implemented options:
 
