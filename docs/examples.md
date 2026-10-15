@@ -130,13 +130,14 @@ for mode in gentle standard strong; do
 done
 ```
 
-Clean several PDF pages concurrently:
+Override the automatic PDF page concurrency:
 
 ```bash
 pdf-slim.sh --input monthly-statements.pdf \
   --output monthly-statements-cleaned.pdf --clean-scan --jobs 5
 ```
 
+By default, PDF scan cleanup uses up to five workers, limited by page count.
 `--jobs 1` forces serial page cleanup. See the
 [scan-clean concurrency record](scan-clean-concurrency.md)
 for measured tradeoffs.

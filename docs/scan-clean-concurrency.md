@@ -2,25 +2,21 @@
 
 This page is the authoritative design and evidence record for concurrent PDF
 page cleanup in `pdf-slim.sh`. It documents implemented worker safety, measured
-performance, the planned automatic policy, and the anonymous metrics needed to
+performance, the automatic policy, and the anonymous metrics needed to
 improve that policy after broader real-world use.
 
 ## Scope and current status
 
 PDF scan cleanup renders and cleans independent pages before reassembling them
-in original order. The current uncommitted 1.3.0 candidate can process those
-pages concurrently through explicit `--jobs N`, accepting values from 1 through
-11. Its default remains serial (`--jobs 1`).
-
-The next planned behavior is:
+in original order. Version 1.3.0 selects workers automatically using:
 
 ```text
 effective workers = min(PDF page count, 5)
 ```
 
-An explicit `--jobs N` will override the automatic value; `--jobs 1` will
-continue to force serial cleanup. Automatic selection and performance metrics
-are documented here but are not yet implemented.
+An explicit `--jobs N`, accepting values from 1 through 11, overrides the
+automatic value; `--jobs 1` forces serial cleanup. Performance metrics are
+documented here but are not yet implemented.
 
 ## Implemented worker behavior and safety
 
@@ -61,9 +57,9 @@ stop providing useful returns.
   preservation disabled to exclude metadata work from the comparison.
 - The same SHA-256-verified local source copy was used for every run.
 - The candidate worktree was based on commit
-  `c51c273a731313cd0b91356cd67214c753ddc317`. The concurrency implementation
-  was uncommitted during measurement; replace this note with its commit
-  identifier if the candidate is retained and committed.
+  `c51c273a731313cd0b91356cd67214c753ddc317`. The measured explicit-concurrency
+  implementation was subsequently retained in commit
+  `ebcfdfee14a84887c5ecde70ae9a82e9b3b1daf4`.
 
 ### Method
 

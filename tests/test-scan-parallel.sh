@@ -108,11 +108,19 @@ wait "$second_pid"
 # These globals are consumed by clean_scan_pdf through Bash dynamic scope.
 # shellcheck disable=SC2034
 inspect_scan_pdf() {
-    SCAN_PAGE_COUNT=4
-    SCAN_PAGE_WIDTH=( '' 72 72 72 72 )
-    SCAN_PAGE_HEIGHT=( '' 72 72 72 72 )
-    SCAN_X_DPI=( '' 100 100 100 100 )
-    SCAN_Y_DPI=( '' 100 100 100 100 )
+    local page_count=${PARALLEL_PAGE_COUNT:-4}
+    local page
+    SCAN_PAGE_COUNT=$page_count
+    SCAN_PAGE_WIDTH=( '' )
+    SCAN_PAGE_HEIGHT=( '' )
+    SCAN_X_DPI=( '' )
+    SCAN_Y_DPI=( '' )
+    for (( page = 1; page <= page_count; page += 1 )); do
+        SCAN_PAGE_WIDTH[page]=72
+        SCAN_PAGE_HEIGHT[page]=72
+        SCAN_X_DPI[page]=100
+        SCAN_Y_DPI[page]=100
+    done
 }
 
 source_pdf=$test_dir/source.pdf
@@ -135,6 +143,35 @@ second=$(grep -n '/cleaned/page-2.png' "$test_dir/assembly.args" | cut -d: -f1)
 third=$(grep -n '/cleaned/page-3.png' "$test_dir/assembly.args" | cut -d: -f1)
 fourth=$(grep -n '/cleaned/page-4.png' "$test_dir/assembly.args" | cut -d: -f1)
 (( first < second && second < third && third < fourth ))
+
+# Automatic selection uses every worker for short PDFs, capped at five.
+automatic_directory=$test_dir/automatic-scan
+mkdir "$automatic_directory"
+reset_state
+PARALLEL_STATE=$test_dir/state \
+PARALLEL_ASSEMBLY_ARGS=$test_dir/assembly.args PARALLEL_PAGE_COUNT=7 \
+clean_scan_pdf "$source_pdf" "$test_dir/automatic.pdf" \
+    "$automatic_directory" standard "$test_dir/bin/fake-timeout" 1m \
+    unused-gs "$test_dir/bin/fake-magick" unused-pdfinfo \
+    unused-pdfimages unused-pdftotext unused-pdfdetach \
+    "$test_dir/bin/fake-render" "$test_dir/bin/fake-clean" auto
+
+[[ $(cat "$test_dir/state.maximum") -eq 5 ]]
+[[ -s $test_dir/automatic.pdf ]]
+
+short_automatic_directory=$test_dir/short-automatic-scan
+mkdir "$short_automatic_directory"
+reset_state
+PARALLEL_STATE=$test_dir/state \
+PARALLEL_ASSEMBLY_ARGS=$test_dir/assembly.args PARALLEL_PAGE_COUNT=3 \
+clean_scan_pdf "$source_pdf" "$test_dir/short-automatic.pdf" \
+    "$short_automatic_directory" standard "$test_dir/bin/fake-timeout" 1m \
+    unused-gs "$test_dir/bin/fake-magick" unused-pdfinfo \
+    unused-pdfimages unused-pdftotext unused-pdfdetach \
+    "$test_dir/bin/fake-render" "$test_dir/bin/fake-clean" auto
+
+[[ $(cat "$test_dir/state.maximum") -eq 3 ]]
+[[ -s $test_dir/short-automatic.pdf ]]
 
 # Prove that the product cleanup helper terminates active page workers rather
 # than leaving them writing into a temporary directory after interruption.

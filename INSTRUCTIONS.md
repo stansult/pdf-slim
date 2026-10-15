@@ -63,9 +63,9 @@ traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
 state directory, guarded image-only scan cleanup, timestamped operational
-output, and bounded concurrent PDF page cleanup through explicit `--jobs N`.
-The concurrency candidate, its tests, and its documentation remain uncommitted
-pending the automatic-worker-policy decision.
+output, and bounded concurrent PDF page cleanup. PDF cleanup automatically uses
+the smaller of its page count and five workers; explicit `--jobs N` overrides
+that choice.
 
 `scan-clean.sh` 1.0.1 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
@@ -237,12 +237,11 @@ The user has approved these decisions:
 18. When PDF cleanup rendering flattens page rotation into pixels, preserve the
     visible page geometry: swap effective width and height for 90- and
     270-degree pages, and retain them for 0- and 180-degree pages.
-19. The current concurrency candidate accepts explicit `--jobs N` values from
-    1 through 11 with a serial default. Workers operate on independent PDF
-    pages; final geometry inspection and PDF assembly remain ordered. A page
-    failure suppresses assembly, and interruption terminates active workers
-    before removing their temporary directory. Automatic worker selection has
-    not been approved or implemented.
+19. PDF scan cleanup automatically uses `min(page count, 5)` workers and
+    accepts explicit `--jobs N` overrides from 1 through 11. Workers operate
+    on independent PDF pages; final geometry inspection and PDF assembly remain
+    ordered. A page failure suppresses assembly, and interruption terminates
+    active workers before removing their temporary directory.
 
 Implemented options:
 
@@ -265,8 +264,8 @@ Implemented options:
 - `--grayscale` — explicit and independent of quality mode.
 - `--clean-scan [MODE]` — gentle, standard, or strong image-only scan contrast
   cleanup; omit the mode to use standard.
-- `--jobs N` — current candidate control for 1 through 11 concurrent PDF page
-  cleanup workers; default 1 and requires `--clean-scan`.
+- `--jobs N` — override automatic PDF page cleanup with 1 through 11 workers;
+  the default is `min(page count, 5)` and the option requires `--clean-scan`.
 - `--help` — document usage, defaults, behavior, and statuses.
 - `--version` — add once useful; a development version is acceptable early.
 
@@ -429,6 +428,13 @@ detailed test-suite reference.
    or maintenance tests before implementation.
 4. Keep forced PDF 1.4 compatibility or a PDF-version option deferred unless a
    concrete compatibility need appears.
+5. Add GitHub Actions after the current concurrency change is complete, as a
+   separate commit. Start with one macOS workflow for pushes and pull requests:
+   read-only repository permissions, a run timeout, installation of the
+   documented Ghostscript, ImageMagick, Poppler, and ShellCheck dependencies,
+   Bash syntax and ShellCheck validation, and the complete `./tests/run.sh`
+   suite. Do not initially add a Linux matrix, scheduled runs, releases, or
+   subjective visual-quality checks.
 
 ## Safety constraints
 
@@ -464,11 +470,8 @@ request is already authorization for that stated change.
 
 ## Immediate next step
 
-Review the automatic PDF scan-cleanup concurrency policy before changing the
-serial default. The completed 1-through-11 worker experiment, environment,
-method, output-equivalence evidence, results, planned automatic policy, and
-anonymous metrics design are recorded in `docs/scan-clean-concurrency.md`.
-Automatic selection and metrics are documented but not yet implemented; review
-the remaining decisions in that document first. The next deferred safety
+Review the remaining performance-metrics decisions in
+`docs/scan-clean-concurrency.md`; automatic worker selection is implemented but
+metrics recording is not. The next deferred safety
 improvement remains Ghostscript recovery-warning handling, which also requires
 explicit design approval.

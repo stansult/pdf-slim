@@ -318,7 +318,8 @@ PATH="$test_path" "$cli" --dry-run -v -i "$test_dir/input/one.pdf" \
 grep -q 'verbose: discovered 1 input(s)' "$test_dir/verbose.err"
 grep -q 'verbose: scan cleanup mode: standard (default)' \
     "$test_dir/verbose.err"
-grep -q 'verbose: scan cleanup workers: 2' "$test_dir/verbose.err"
+grep -q 'verbose: scan cleanup workers requested: 2 (explicit)' \
+    "$test_dir/verbose.err"
 grep -q 'verbose: PDF quality: scan-clean defaults' "$test_dir/verbose.err"
 grep -q 'verbose: metadata: standard (default)' "$test_dir/verbose.err"
 grep -q 'would clean scan (standard):' "$test_dir/verbose.out"

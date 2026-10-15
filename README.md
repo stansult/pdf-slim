@@ -75,8 +75,8 @@ See [additional PDF examples](docs/examples.md) and the
 - Provides gentle, standard, and strong cleanup for safely detected image-only
   scans while preserving visible page geometry, resolution, and color by
   default.
-- Delegates page-pixel cleanup to `scan-clean.sh` and can process multiple PDF
-  pages concurrently with explicit `--jobs N`.
+- Delegates page-pixel cleanup to `scan-clean.sh` and automatically processes
+  up to five PDF pages concurrently; `--jobs N` provides an explicit override.
 - Accepts raster scans directly and produces PDF output through the same
   cleanup and PDF-quality pipeline.
 
@@ -138,7 +138,7 @@ Scan cleanup options:
 --clean-scan [MODE]  Improve an image-only scan using gentle, standard, or
                      strong cleanup (default mode: standard)
 --jobs N             Clean up to N PDF pages concurrently, 1-11
-                     (default: 1; requires --clean-scan)
+                     (default: automatic, up to 5; requires --clean-scan)
 ```
 
 With no quality option, scan cleanup retains source resolution and uses JPEG

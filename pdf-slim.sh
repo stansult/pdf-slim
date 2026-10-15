@@ -14,6 +14,7 @@ LOG_WILDCARD_SIGNATURE='*'
 CONVERSION_POLICY_REVISION='1'
 DEFAULT_IMAGE_INPUT_DPI='300'
 MINIMUM_CREDIBLE_IMAGE_DPI='150'
+AUTOMATIC_SCAN_JOB_CAP='5'
 
 LOG_RECORD_PATHS=()
 LOG_RECORD_SIZES=()
@@ -71,7 +72,7 @@ Scan cleanup:
                          source DPI and JPEG QFactor 0.10; --grayscale remains
                          independent)
   --jobs N                Clean up to N PDF pages concurrently, 1-11
-                          (default: 1; requires --clean-scan)
+                          (default: automatic, up to 5; requires --clean-scan)
 
 Options:
   --recursive         Descend into supplied directories
@@ -1195,7 +1196,7 @@ clean_scan_pdf() {
     local pdfdetach_command=${12}
     local pdftocairo_command=${13}
     local scan_clean_command=${14}
-    local jobs=${15:-1}
+    local jobs=${15:-auto}
     local page rendered cleaned dimensions pixel_width pixel_height
     local output_x_dpi output_y_dpi
     local worker_pid worker_log worker_status
@@ -1210,6 +1211,15 @@ clean_scan_pdf() {
         "$pdfinfo_command" "$pdfimages_command" "$pdftotext_command" \
         "$pdfdetach_command" || return 1
     verbose "scan inspection accepted $SCAN_PAGE_COUNT page(s): $source"
+    if [[ $jobs == auto ]]; then
+        jobs=$SCAN_PAGE_COUNT
+        if (( jobs > AUTOMATIC_SCAN_JOB_CAP )); then
+            jobs=$AUTOMATIC_SCAN_JOB_CAP
+        fi
+        verbose "scan cleanup workers: $jobs (automatic for $SCAN_PAGE_COUNT page(s))"
+    else
+        verbose "scan cleanup workers: $jobs (explicit for $SCAN_PAGE_COUNT page(s))"
+    fi
     mkdir "$scan_directory/rendered" "$scan_directory/cleaned" \
         "$scan_directory/workers" || return 1
     while (( next_page <= SCAN_PAGE_COUNT || ${#worker_pids[@]} )); do
@@ -1958,7 +1968,7 @@ main() {
     local output_file=''
     local mode=''
     local timeout_duration='1h'
-    local jobs=1
+    local jobs=auto
     local quality='preserve'
     local max_dpi=''
     local jpeg_recompress=''
@@ -2265,7 +2275,7 @@ main() {
         error '--timeout duration must not be empty'
         return 2
     fi
-    if [[ ! $jobs =~ ^([1-9]|1[01])$ ]]; then
+    if (( jobs_explicit )) && [[ ! $jobs =~ ^([1-9]|1[01])$ ]]; then
         error "--jobs must be an integer from 1 through 11: $jobs"
         return 2
     fi
@@ -2361,7 +2371,11 @@ main() {
         else
             verbose "scan cleanup mode: $clean_scan (default)"
         fi
-        verbose "scan cleanup workers: $jobs"
+        if (( jobs_explicit )); then
+            verbose "scan cleanup workers requested: $jobs (explicit)"
+        else
+            verbose "scan cleanup workers: automatic (up to $AUTOMATIC_SCAN_JOB_CAP)"
+        fi
     else
         verbose 'scan cleanup: disabled'
     fi
