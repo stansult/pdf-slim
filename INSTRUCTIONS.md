@@ -448,6 +448,19 @@ detailed test-suite reference.
    Bash syntax and ShellCheck validation, and the complete `./tests/run.sh`
    suite. Do not initially add a Linux matrix, scheduled runs, releases, or
    subjective visual-quality checks.
+6. Monitor an intermittent Dropbox/macOS File Provider publication issue before
+   changing code. In one exact-output run, `pdf-slim.sh` passed its immediate
+   atomic-publication checks and reported `created`, but the requested name was
+   absent afterward while the valid result remained under its hidden
+   `.pdf-slim.*` candidate name; the user recovered it by renaming it manually.
+   Twelve controlled synthetic publications and three subsequent real
+   conversions in the same Dropbox directory did not reproduce the reversal.
+   The same atomic temporary-file pattern could theoretically affect
+   `scan-clean.sh`. For now, do not add a fixed cloud-stability delay or change
+   publication semantics. If it recurs, preserve the destination and candidate
+   names, inodes, sizes, timestamps, output mode, command output, and elapsed
+   time before rerunning or renaming, then reevaluate a batch-aware final
+   verification pass.
 
 ## Safety constraints
 
