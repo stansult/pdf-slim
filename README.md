@@ -163,9 +163,9 @@ Other options:
 --version                 Show the version
 ```
 
-Run `pdf-slim.sh --help` for the authoritative command summary. Exit status is
-`0` for success, `1` when one or more conversions fail, and `2` for an invalid
-or unsafe request.
+Run `pdf-slim.sh --help` for the authoritative command summary. Possible exit
+codes are `0` for success, `1` when one or more conversions fail, and `2` for
+an invalid or unsafe request.
 
 ## Safety summary
 

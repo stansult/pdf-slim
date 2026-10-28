@@ -116,7 +116,10 @@ Important:
 Full documentation:
   https://github.com/stansult/pdf-slim
 
-Exit status: 0 success, 1 conversion failure, 2 invalid or unsafe request.
+Possible exit codes:
+  0  Success
+  1  One or more conversions failed
+  2  Invalid or unsafe request
 EOF
 }
 
