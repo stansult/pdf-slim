@@ -31,6 +31,8 @@ grep -q -- 'Do not combine --quality' "$test_dir/help-long.out"
 grep -q -- '--clean-scan \[MODE\]' "$test_dir/help-long.out"
 grep -q -- 'gentle, standard, or' "$test_dir/help-long.out"
 grep -q -- 'default mode: standard' "$test_dir/help-long.out"
+grep -q -- 'adaptive paper whitening and contrast cleanup' \
+    "$test_dir/help-long.out"
 grep -q -- '--jobs N' "$test_dir/help-long.out"
 grep -q -- '^Possible exit codes:$' "$test_dir/help-long.out"
 grep -q -- '-v, --verbose' "$test_dir/help-long.out"
@@ -44,7 +46,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.4.0' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.4.1' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2

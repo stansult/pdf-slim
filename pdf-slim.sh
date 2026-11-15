@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.4.0'
+VERSION='1.4.1'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -81,7 +81,8 @@ Do not combine --quality with --max-dpi or --jpeg-recompress.
 
 Scan cleanup:
   --clean-scan [MODE]    Improve an image-only scan using gentle, standard, or
-                         strong contrast cleanup while retaining color
+                         strong adaptive paper whitening and contrast cleanup
+                         while retaining color
                          (default mode: standard; with no quality options:
                          source DPI and JPEG QFactor 0.10; --grayscale remains
                          independent)

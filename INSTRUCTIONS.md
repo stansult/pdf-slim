@@ -58,7 +58,7 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-The current uncommitted `pdf-slim.sh` 1.4.0 candidate implements safe
+The current `pdf-slim.sh` 1.4.1 implementation provides safe
 traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
@@ -70,7 +70,7 @@ concurrency, timing, size, machine-capacity, and outcome metrics for future
 policy tuning; normal output remains unchanged and verbose mode reports a
 one-line summary.
 
-`scan-clean.sh` 1.0.1 implements adaptive gentle, standard,
+`scan-clean.sh` 1.1.0 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
 glob, or nonrecursive directory; supports exact, automatic, and output-directory
 publication; preserves image metadata and transparency where supported; and
@@ -118,6 +118,13 @@ The user explicitly approved these choices for `scan-clean.sh`:
     undecorated. Timestamp only the primary line of a logical output group;
     leave explanatory and external-tool continuation lines unprefixed. Support
     `-v` / `--verbose`, with diagnostics on standard error.
+14. Estimate dominant paper brightness independently for each image. Use
+    bounded adaptive white points of estimated brightness plus 2% within
+    90%–96% for gentle, estimated brightness within 88%–94% for standard, and
+    estimated brightness minus 2% within 86%–92% for strong. Retain the
+    existing 8%, 12%, and 16% black points respectively. PDF cleanup applies
+    the same analysis independently to each rendered page; grayscale remains a
+    later, orthogonal PDF conversion choice.
 
 The standalone engine was committed first. The subsequent PDF integration keeps
 the public `--clean-scan [gentle|standard|strong]` interface, defaulting to
@@ -214,6 +221,9 @@ The user has approved these decisions:
 13. Allow `--clean-scan [gentle|standard|strong]` for safely detected image-only
     scans, defaulting to `standard` when the mode is omitted. Preserve page
     dimensions, source resolution, and color by default.
+    Estimate each page's paper brightness independently and use the bounded
+    adaptive white points defined in the standalone-cleanup decisions so gray
+    paper can approach white without further lifting already-white pages.
     With no quality arguments, re-encode changed pixels at `QFactor 0.10`;
     explicit quality controls override cleanup defaults, and `--grayscale`
     remains independent. Refuse inputs whose detectable non-image content would
@@ -414,7 +424,11 @@ doubles where useful. At minimum cover:
 - quoted input glob expansion, no-match failure, existing literal
   metacharacter filenames, and safe rejection of unquoted multi-match usage;
 - no log update after failure/timeout;
-- dry-run performs no writes and launches no Ghostscript process.
+- dry-run performs no writes and launches no Ghostscript process;
+- bounded adaptive paper whitening for gray and already-white raster inputs,
+  including mode progression and faint-mark retention;
+- end-to-end multipage PDF paper-tone consistency through rendering, standard
+  cleanup, grayscale conversion, assembly, and final PDF rendering.
 
 Always run the complete suite and static checks before committing executable or
 test changes:

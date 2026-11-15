@@ -15,6 +15,24 @@ Run `scan-clean.sh --help` for the authoritative option list.
 nonrecursive directory. It is not repeatable, and directory traversal is not
 recursive.
 
+Each image is analyzed independently before cleanup. The dominant paper
+brightness selects a bounded white point, allowing photographed gray paper to
+approach white without further lifting paper that is already white. Cleanup
+strength retains progressively stronger black points and guarded white-point
+ranges:
+
+| Mode | Black point | Adaptive white point |
+| --- | ---: | ---: |
+| `gentle` | 8% | estimated paper + 2%, limited to 90%–96% |
+| `standard` | 12% | estimated paper, limited to 88%–94% |
+| `strong` | 16% | estimated paper − 2%, limited to 86%–92% |
+
+For PDF input, `pdf-slim.sh` applies the same analysis to every rendered page,
+so differently exposed pages can converge on a more consistent paper tone.
+The bounds prevent a dark dominant region from producing an extreme white
+point. Faint marks are retained as tonal detail rather than thresholded to
+strict black and white.
+
 With one selected image and no output option, the default `standard` mode
 creates `NAME-standard.EXT` beside the source:
 

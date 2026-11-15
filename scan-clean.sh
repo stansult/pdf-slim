@@ -6,7 +6,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.0.1'
+VERSION='1.1.0'
 DEFAULT_TIMEOUT='1h'
 DEFAULT_MODE='standard'
 DEFAULT_JPEG_QUALITY='95'
@@ -15,6 +15,7 @@ VERBOSE=0
 OPERATIONAL_OUTPUT_STARTED=0
 OPERATIONAL_START_DATE=''
 OPERATIONAL_LAST_STREAM='stderr'
+PAPER_BRIGHTNESS_PERCENT=94
 
 usage() {
     cat <<EOF
@@ -35,6 +36,8 @@ Output:
 Cleanup:
   -m, --mode MODE        gentle, standard (default), or strong
   --all-modes            Generate gentle, standard, and strong variants
+  Paper brightness is estimated independently for each image so gray paper can
+  approach white while the selected mode controls guarded contrast strength.
 
 Image options:
   --jpeg-quality N       JPEG output quality, 1-100 (default: 95)
@@ -579,7 +582,7 @@ prepare_output_directory() {
 
 detect_background_cast() {
     local source=$1
-    local dominant_color red green blue minimum maximum histogram
+    local dominant_color red green blue minimum maximum histogram brightness
 
     run_command 'background inspection' "$source" "$magick_command" "$source" \
         -resize '10%' -colors 12 -depth 8 -format %c histogram:info:- || return 1
@@ -598,6 +601,8 @@ detect_background_cast() {
     (( blue < minimum )) && minimum=$blue
     (( green > maximum )) && maximum=$green
     (( blue > maximum )) && maximum=$blue
+    brightness=$(((red + green + blue) * 100 / (3 * 255)))
+    PAPER_BRIGHTNESS_PERCENT=$brightness
     if (( maximum - minimum > 10 )); then
         NORMALIZATION_ARGS=(-channel RGB -contrast-stretch '0x0.5%' +channel)
     else
@@ -622,10 +627,27 @@ has_forbidden_output_extension() {
 }
 
 levels_for_mode() {
+    local white_point
+
     case $1 in
-        gentle) printf '%s\n' '8%,96%' ;;
-        standard) printf '%s\n' '12%,94%' ;;
-        strong) printf '%s\n' '16%,92%' ;;
+        gentle)
+            white_point=$((PAPER_BRIGHTNESS_PERCENT + 2))
+            (( white_point < 90 )) && white_point=90
+            (( white_point > 96 )) && white_point=96
+            printf '8%%,%s%%\n' "$white_point"
+            ;;
+        standard)
+            white_point=$PAPER_BRIGHTNESS_PERCENT
+            (( white_point < 88 )) && white_point=88
+            (( white_point > 94 )) && white_point=94
+            printf '12%%,%s%%\n' "$white_point"
+            ;;
+        strong)
+            white_point=$((PAPER_BRIGHTNESS_PERCENT - 2))
+            (( white_point < 86 )) && white_point=86
+            (( white_point > 92 )) && white_point=92
+            printf '16%%,%s%%\n' "$white_point"
+            ;;
     esac
 }
 
@@ -684,6 +706,7 @@ process_source() {
     verbose "input: $source (${source_formats[$source_index]}, ${source_widths[$source_index]}x${source_heights[$source_index]})"
     verbose "inspecting document background: $source"
     detect_background_cast "$source" || return 1
+    verbose "paper brightness estimate: ${PAPER_BRIGHTNESS_PERCENT}%"
     if (( ${#NORMALIZATION_ARGS[@]} )); then
         verbose 'background cast normalization: enabled'
     else

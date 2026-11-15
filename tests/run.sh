@@ -21,6 +21,8 @@ for test_script in \
     test-scan-parallel.sh \
     test-scan-clean-delegation.sh \
     test-image-to-pdf.sh \
+    test-pdf-scan-tones.sh \
+    test-scan-clean-tones.sh \
     test-scan-clean-command.sh
 do
     "$test_dir/$test_script"

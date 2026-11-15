@@ -66,6 +66,8 @@ macOS when `xattr` is available.
 | `test-scan-parallel.sh` | Independently validated controlled-worker overlap; explicit concurrency bounds; automatic `min(page count, 5)` selection; workload and worker metrics; ordered assembly; failed-page propagation and assembly suppression. |
 | `test-scan-clean-delegation.sh` | Discovery of the sibling or `PATH` cleanup engine; delegated mode, timeout, input/output, and metadata arguments; engine failure and timeout propagation; temporary-directory cleanup; missing dependency refusal. |
 | `test-image-to-pdf.sh` | Raster-image-to-PDF cleanup; physical sizing from credible or fallback density; detailed quality and grayscale; batch and recursive mapping; destination collisions; animated-image refusal; replacement prohibition. |
+| `test-pdf-scan-tones.sh` | Independently validated gray- and bright-paper pages assembled into an image-only PDF; end-to-end standard cleanup and grayscale conversion; final paper-tone consistency; dark-ink and faint-mark retention. |
+| `test-scan-clean-tones.sh` | Independently verified gray- and bright-paper fixtures; adaptive white-point guardrails and mode offsets; gray-paper whitening; bright-paper stability; progressive dark-ink contrast; faint-mark retention. |
 | `test-scan-clean-command.sh` | Standalone image cleanup help and validation; default and all-mode naming; verbose CLI reporting; overwrite behavior; metadata, transparency, background, density, and JPEG quality; directory/glob filtering; metadata-only source churn and real source-change detection; publication races; signal, partial-failure, timeout, and temporary cleanup. |
 
 ## Test doubles

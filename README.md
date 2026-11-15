@@ -10,7 +10,7 @@
 Use `pdf-slim.sh` when output should be PDF. Use `scan-clean.sh` when output
 should remain an image.
 
-Current versions: `pdf-slim.sh` 1.4.0 and `scan-clean.sh` 1.0.1.
+Current versions: `pdf-slim.sh` 1.4.1 and `scan-clean.sh` 1.1.0.
 
 ## Quick start
 
@@ -73,8 +73,8 @@ See [additional PDF examples](docs/examples.md) and the
 - Records successful replacement outcomes and skips only unchanged files with
   matching identity and processing policy.
 - Provides gentle, standard, and strong cleanup for safely detected image-only
-  scans while preserving visible page geometry, resolution, and color by
-  default.
+  scans, with bounded per-page paper-brightness normalization, while preserving
+  visible page geometry, resolution, and color by default.
 - Delegates page-pixel cleanup to `scan-clean.sh` and automatically processes
   up to five PDF pages concurrently; `--jobs N` provides an explicit override.
 - Privately records anonymous PDF scan-clean performance metrics for future
@@ -86,6 +86,8 @@ See [additional PDF examples](docs/examples.md) and the
 
 - Cleans supported single-frame raster images directly.
 - Provides gentle, standard, and strong cleanup plus `--all-modes` comparison.
+- Estimates each image's paper brightness independently so gray paper can
+  approach white without applying extra whitening to already-white paper.
 - Supports exact output, automatic collision-safe naming, and nonrecursive
   directory or quoted-glob batches.
 - Converts raster formats according to the requested output extension.
@@ -138,7 +140,8 @@ Scan cleanup options:
 
 ```text
 --clean-scan [MODE]  Improve an image-only scan using gentle, standard, or
-                     strong cleanup (default mode: standard)
+                     strong adaptive paper whitening and contrast cleanup
+                     (default mode: standard)
 --jobs N             Clean up to N PDF pages concurrently, 1-11
                      (default: automatic, up to 5; requires --clean-scan)
 ```
