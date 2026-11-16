@@ -13,6 +13,12 @@ From the project root, run the complete suite:
 ./tests/run.sh
 ```
 
+To verify compatibility with the Bash 3.2 included with macOS, run:
+
+```bash
+/bin/bash ./tests/run.sh
+```
+
 Run one test directly when working on a focused area:
 
 ```bash
@@ -28,10 +34,10 @@ bash -n pdf-slim.sh scan-clean.sh tests/*.sh
 shellcheck pdf-slim.sh scan-clean.sh tests/*.sh
 ```
 
-GitHub Actions runs these syntax, ShellCheck, and complete-suite checks on a
-pinned macOS runner for every push to `master` and every pull request. The
-workflow can also be started manually from GitHub. Subjective visual-quality
-and performance comparisons remain manual.
+GitHub Actions runs these syntax, ShellCheck, and complete-suite checks under
+the macOS-provided Bash 3.2 on a pinned macOS runner for every push to `master`
+and every pull request. The workflow can also be started manually from GitHub.
+Subjective visual-quality and performance comparisons remain manual.
 
 ## Requirements
 

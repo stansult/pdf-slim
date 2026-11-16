@@ -469,10 +469,10 @@ upgrade dependencies without approval. Keep `README.md`, focused documents,
 and both commands' usage text aligned with behavior. `tests/README.md` is the
 detailed test-suite reference.
 
-`.github/workflows/tests.yml` runs the static checks and complete suite on a
-pinned macOS runner for pushes to `master`, pull requests, and manual runs. It
-uses read-only repository permissions and deliberately excludes subjective
-visual-quality and performance comparisons.
+`.github/workflows/tests.yml` runs the static checks and complete suite under
+the macOS-provided Bash 3.2 on a pinned macOS runner for pushes to `master`,
+pull requests, and manual runs. It uses read-only repository permissions and
+deliberately excludes subjective visual-quality and performance comparisons.
 
 ## Deferred work
 

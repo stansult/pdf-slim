@@ -721,16 +721,18 @@ summarize_page_metrics() {
     local duration sum=0 text=''
     local -a available=()
 
-    for duration in "${METRIC_PAGE_TIMES[@]}"; do
-        [[ $duration =~ ^[0-9]+$ ]] || continue
-        available[${#available[@]}]=$duration
-        sum=$((sum + duration))
-        if [[ -n $text ]]; then
-            text=$text,$duration
-        else
-            text=$duration
-        fi
-    done
+    if (( ${#METRIC_PAGE_TIMES[@]} )); then
+        for duration in "${METRIC_PAGE_TIMES[@]}"; do
+            [[ $duration =~ ^[0-9]+$ ]] || continue
+            available[${#available[@]}]=$duration
+            sum=$((sum + duration))
+            if [[ -n $text ]]; then
+                text=$text,$duration
+            else
+                text=$duration
+            fi
+        done
+    fi
     (( ${#available[@]} )) || return 0
     METRIC_PAGE_SUM_SECONDS=$sum
     METRIC_PAGE_MIN_SECONDS=$(printf '%s\n' "${available[@]}" | \
@@ -1091,10 +1093,16 @@ filter_logged_sources() {
         fi
         ((i += 1))
     done
-    sources=("${kept_sources[@]}")
-    source_keys=("${kept_source_keys[@]}")
-    relatives=("${kept_relatives[@]}")
-    source_types=("${kept_source_types[@]}")
+    sources=()
+    source_keys=()
+    relatives=()
+    source_types=()
+    if (( ${#kept_sources[@]} )); then
+        sources=("${kept_sources[@]}")
+        source_keys=("${kept_source_keys[@]}")
+        relatives=("${kept_relatives[@]}")
+        source_types=("${kept_source_types[@]}")
+    fi
 }
 
 prepare_candidate_metadata() {
@@ -1267,21 +1275,28 @@ remove_active_scan_worker() {
     local pid
     local -a remaining=()
 
-    for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
-        [[ $pid == "$completed_pid" ]] || remaining[${#remaining[@]}]=$pid
-    done
-    ACTIVE_SCAN_WORKERS=( "${remaining[@]}" )
+    if (( ${#ACTIVE_SCAN_WORKERS[@]} )); then
+        for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
+            [[ $pid == "$completed_pid" ]] || remaining[${#remaining[@]}]=$pid
+        done
+    fi
+    ACTIVE_SCAN_WORKERS=()
+    if (( ${#remaining[@]} )); then
+        ACTIVE_SCAN_WORKERS=("${remaining[@]}")
+    fi
 }
 
 stop_active_scan_workers() {
     local pid
 
-    for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
-        kill "$pid" 2>/dev/null || true
-    done
-    for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
-        wait "$pid" 2>/dev/null || true
-    done
+    if (( ${#ACTIVE_SCAN_WORKERS[@]} )); then
+        for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
+            kill "$pid" 2>/dev/null || true
+        done
+        for pid in "${ACTIVE_SCAN_WORKERS[@]}"; do
+            wait "$pid" 2>/dev/null || true
+        done
+    fi
     ACTIVE_SCAN_WORKERS=()
 }
 
@@ -1730,9 +1745,10 @@ clean_scan_pdf() {
             worker_pids[${#worker_pids[@]}]=$worker_pid
             worker_logs[${#worker_logs[@]}]=$worker_log
             worker_pages[${#worker_pages[@]}]=$next_page
-            if (( METRICS_ACTIVE && \
-                ${#worker_pids[@]} > METRIC_MAX_ACTIVE_WORKERS )); then
-                METRIC_MAX_ACTIVE_WORKERS=${#worker_pids[@]}
+            if (( METRICS_ACTIVE )); then
+                if (( ${#worker_pids[@]} > METRIC_MAX_ACTIVE_WORKERS )); then
+                    METRIC_MAX_ACTIVE_WORKERS=${#worker_pids[@]}
+                fi
             fi
             ((next_page += 1))
         done
@@ -2096,9 +2112,11 @@ absolute_path() {
         [[ -n $path ]] || break
     done
 
-    for segment in "${components[@]}"; do
-        result=$result/$segment
-    done
+    if (( ${#components[@]} )); then
+        for segment in "${components[@]}"; do
+            result=$result/$segment
+        done
+    fi
     printf '%s\n' "${result:-/}"
 }
 

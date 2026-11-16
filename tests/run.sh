@@ -27,7 +27,7 @@ for test_script in \
     test-scan-clean-command.sh
 do
     printf 'running %s\n' "$test_script"
-    "$test_dir/$test_script"
+    "$BASH" "$test_dir/$test_script"
 done
 
 printf '%s\n' 'all tests passed'

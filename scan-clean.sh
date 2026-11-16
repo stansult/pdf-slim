@@ -220,9 +220,11 @@ absolute_path() {
         esac
         [[ -n $path ]] || break
     done
-    for segment in "${components[@]}"; do
-        result=$result/$segment
-    done
+    if (( ${#components[@]} )); then
+        for segment in "${components[@]}"; do
+            result=$result/$segment
+        done
+    fi
     printf '%s\n' "${result:-/}"
 }
 
@@ -305,9 +307,11 @@ remove_temp_directory() {
 clear_active_temp_directories() {
     local directory
 
-    for directory in "${ACTIVE_TEMP_DIRECTORIES[@]}"; do
-        remove_temp_directory "$directory" || true
-    done
+    if (( ${#ACTIVE_TEMP_DIRECTORIES[@]} )); then
+        for directory in "${ACTIVE_TEMP_DIRECTORIES[@]}"; do
+            remove_temp_directory "$directory" || true
+        done
+    fi
     ACTIVE_TEMP_DIRECTORIES=()
 }
 
@@ -453,9 +457,11 @@ destination_key_is_reserved() {
     local key=$1
     local existing
 
-    for existing in "${reserved_destination_keys[@]}"; do
-        [[ $existing != "$key" ]] || return 0
-    done
+    if (( ${#reserved_destination_keys[@]} )); then
+        for existing in "${reserved_destination_keys[@]}"; do
+            [[ $existing != "$key" ]] || return 0
+        done
+    fi
     return 1
 }
 
@@ -803,9 +809,11 @@ process_source() {
         else
             verbose 'final paper white balance: not needed'
         fi
-        image_args=(
-            "$tonal_candidate"
-            "${NORMALIZATION_ARGS[@]}"
+        image_args=("$tonal_candidate")
+        if (( ${#NORMALIZATION_ARGS[@]} )); then
+            image_args+=("${NORMALIZATION_ARGS[@]}")
+        fi
+        image_args+=(
             '('
             +clone
             -colorspace Gray

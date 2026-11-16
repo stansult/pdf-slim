@@ -41,10 +41,10 @@ jobs:
           shellcheck --version | head -n 2
 
       - name: Check shell syntax
-        run: bash -n pdf-slim.sh scan-clean.sh tests/*.sh
+        run: /bin/bash -n pdf-slim.sh scan-clean.sh tests/*.sh
 
       - name: Run ShellCheck
         run: shellcheck pdf-slim.sh scan-clean.sh tests/*.sh
 
       - name: Run test suite
-        run: ./tests/run.sh
+        run: /bin/bash ./tests/run.sh
