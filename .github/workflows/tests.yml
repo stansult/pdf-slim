@@ -1,0 +1,50 @@
+name: Tests
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Install dependencies
+        run: |
+          brew install ghostscript imagemagick poppler coreutils shellcheck
+          command -v expect >/dev/null || brew install expect
+
+      - name: Report tool versions
+        run: |
+          bash --version | head -n 1
+          gs --version
+          magick --version | head -n 1
+          pdfinfo -v 2>&1 | head -n 1
+          gtimeout --version | head -n 1
+          expect -v
+          shellcheck --version | head -n 2
+
+      - name: Check shell syntax
+        run: bash -n pdf-slim.sh scan-clean.sh tests/*.sh
+
+      - name: Run ShellCheck
+        run: shellcheck pdf-slim.sh scan-clean.sh tests/*.sh
+
+      - name: Run test suite
+        run: ./tests/run.sh

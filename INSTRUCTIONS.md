@@ -469,6 +469,11 @@ upgrade dependencies without approval. Keep `README.md`, focused documents,
 and both commands' usage text aligned with behavior. `tests/README.md` is the
 detailed test-suite reference.
 
+`.github/workflows/tests.yml` runs the static checks and complete suite on a
+pinned macOS runner for pushes to `master`, pull requests, and manual runs. It
+uses read-only repository permissions and deliberately excludes subjective
+visual-quality and performance comparisons.
+
 ## Deferred work
 
 1. Implement the Ghostscript recovery-warning behavior described above, with
@@ -480,14 +485,7 @@ detailed test-suite reference.
    or maintenance tests before implementation.
 4. Keep forced PDF 1.4 compatibility or a PDF-version option deferred unless a
    concrete compatibility need appears.
-5. Add GitHub Actions as a separate future commit. Start with one macOS
-   workflow for pushes and pull requests:
-   read-only repository permissions, a run timeout, installation of the
-   documented Ghostscript, ImageMagick, Poppler, and ShellCheck dependencies,
-   Bash syntax and ShellCheck validation, and the complete `./tests/run.sh`
-   suite. Do not initially add a Linux matrix, scheduled runs, releases, or
-   subjective visual-quality checks.
-6. Monitor an intermittent Dropbox/macOS File Provider publication issue before
+5. Monitor an intermittent Dropbox/macOS File Provider publication issue before
    changing code. In one exact-output run, `pdf-slim.sh` passed its immediate
    atomic-publication checks and reported `created`, but the requested name was
    absent afterward while the valid result remained under its hidden

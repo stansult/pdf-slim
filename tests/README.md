@@ -28,6 +28,11 @@ bash -n pdf-slim.sh scan-clean.sh tests/*.sh
 shellcheck pdf-slim.sh scan-clean.sh tests/*.sh
 ```
 
+GitHub Actions runs these syntax, ShellCheck, and complete-suite checks on a
+pinned macOS runner for every push to `master` and every pull request. The
+workflow can also be started manually from GitHub. Subjective visual-quality
+and performance comparisons remain manual.
+
 ## Requirements
 
 The complete suite requires the same macOS command-line environment used by the
