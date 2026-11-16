@@ -84,6 +84,15 @@ case ${FAKE_GS_MODE:-success} in
     success)
         printf '%s\n' '%PDF-1.7 fake output' >"$output_file"
         ;;
+    recovered-success)
+        printf '%s\n' '%PDF-1.7 fake recovered output' >"$output_file"
+        printf '%s\n' \
+            '   **** This file had errors that were repaired or ignored.' >&2
+        ;;
+    warning-success)
+        printf '%s\n' '%PDF-1.7 fake warning output' >"$output_file"
+        printf '%s\n' 'fake-gs: harmless warning' >&2
+        ;;
     failure)
         printf '%s\n' 'fake-gs: deliberate failure' >&2
         exit 9

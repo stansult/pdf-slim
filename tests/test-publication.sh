@@ -123,6 +123,53 @@ original_size=$(file_size "$replace_pdf")
 process_source "$replace_pdf" replace.pdf "$replace_pdf"
 [[ $(file_size "$replace_pdf") -lt $original_size ]]
 
+recovered_pdf=$test_dir/recovered.pdf
+recovered_artifact=$test_dir/recovered-recovered.pdf
+printf '%1000s\n' '%PDF-1.7 damaged source' >"$recovered_pdf"
+recovered_hash=$(shasum -a 256 <"$recovered_pdf")
+FAKE_GS_MODE=recovered-success
+export FAKE_GS_MODE
+if process_source "$recovered_pdf" recovered.pdf "$recovered_pdf"; then
+    printf '%s\n' 'expected recovered conversion to require manual review' >&2
+    exit 1
+fi
+[[ $(shasum -a 256 <"$recovered_pdf") == "$recovered_hash" ]]
+[[ -s $recovered_artifact ]]
+
+collision_pdf=$test_dir/collision.pdf
+collision_artifact=$test_dir/collision-recovered.pdf
+collision_numbered_artifact=$test_dir/collision-recovered-2.pdf
+printf '%1000s\n' '%PDF-1.7 damaged collision source' >"$collision_pdf"
+printf '%s\n' 'existing artifact' >"$collision_artifact"
+collision_hash=$(shasum -a 256 <"$collision_pdf")
+if process_source "$collision_pdf" collision.pdf "$collision_pdf"; then
+    printf '%s\n' 'expected colliding recovered conversion to require review' >&2
+    exit 1
+fi
+[[ $(shasum -a 256 <"$collision_pdf") == "$collision_hash" ]]
+[[ $(<"$collision_artifact") == 'existing artifact' ]]
+[[ -s $collision_numbered_artifact ]]
+
+mode='file'
+recovered_exact_source=$test_dir/recovered-exact-source.pdf
+recovered_exact_output=$test_dir/recovered-exact-output.pdf
+printf '%1000s\n' '%PDF-1.7 damaged exact source' \
+    >"$recovered_exact_source"
+recovered_exact_hash=$(shasum -a 256 <"$recovered_exact_source")
+if process_source "$recovered_exact_source" recovered-exact-source.pdf \
+    "$recovered_exact_output"; then
+    printf '%s\n' 'expected recovered exact output to require review' >&2
+    exit 1
+fi
+[[ $(shasum -a 256 <"$recovered_exact_source") == \
+    "$recovered_exact_hash" ]]
+[[ -s $recovered_exact_output ]]
+[[ $PROCESS_ARTIFACT == "$recovered_exact_output" ]]
+
+mode=replace
+FAKE_GS_MODE=success
+export FAKE_GS_MODE
+
 retained_pdf=$test_dir/retained.pdf
 printf 'tiny' >"$retained_pdf"
 retained_hash=$(shasum -a 256 "$retained_pdf")

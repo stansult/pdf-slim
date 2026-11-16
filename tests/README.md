@@ -63,15 +63,15 @@ macOS when `xattr` is available.
 
 | Test | Coverage |
 | --- | --- |
-| `test-conversion.sh` | Ghostscript argument construction for presets, detailed DPI/JPEG settings, and grayscale; successful output; nonzero, partial, empty, and timed-out conversion failures; candidate cleanup. |
+| `test-conversion.sh` | Ghostscript argument construction for presets, detailed DPI/JPEG settings, and grayscale; successful output; independently verified recovery-warning fixture and narrow detection; nonzero, partial, empty, and timed-out conversion failures; candidate cleanup. |
 | `test-fingerprints.sh` | SHA-256 provider selection through `shasum`, `sha256sum`, and `openssl`, plus clear failure when no provider exists, for both commands. |
-| `test-publication.sh` | Exact-file, output-directory, and replacement publication; smaller-only replacement; metadata-only `ctime` tolerance with SHA-256 verification; same-size content-change rejection with restored modification time; final replacement checkpoint and metadata refresh; permissions and timestamps; macOS extended metadata and ACLs; interruption cleanup; destination-created-during-conversion races. |
-| `test-logging.sh` | Version-2 replacement records and permissions; identity and processing-policy matching; `--reprocess`; successful and kept-not-smaller outcomes; failed-attempt exclusion; malformed/incomplete log refusal; version-1 migration and relocation. |
+| `test-publication.sh` | Exact-file, output-directory, and replacement publication; smaller-only replacement; recovery-warning source preservation, review output, and numbered collision handling; metadata-only `ctime` tolerance with SHA-256 verification; same-size content-change rejection with restored modification time; final replacement checkpoint and metadata refresh; permissions and timestamps; macOS extended metadata and ACLs; interruption cleanup; destination-created-during-conversion races. |
+| `test-logging.sh` | Version-2 replacement records and permissions; identity and processing-policy matching; `--reprocess`; successful and kept-not-smaller outcomes; failed and recovery-warning attempt exclusion; malformed/incomplete log refusal; version-1 migration and relocation. |
 | `test-concurrent-logging.sh` | Independent READY/RELEASE fixture validation; bounded barrier failure; simultaneous creation of a new log; simultaneous appends to an existing log; complete unique records, permissions, and lock cleanup. |
 | `test-performance-metrics.sh` | Versioned private TSV creation; deterministic concurrent appends; permissions and lock cleanup; malformed-file refusal; anonymous failure records; one-warning behavior; metrics/product-status isolation; exclusion of non-concurrent modes. |
 | `test-timestamps.sh` | PDF-command date and time prefixes, same-day completion, midnight rollover, unprefixed multiline continuations, labeled errors and warnings, and prefix-free verbose-message gating. |
 | `test-scan-clean-timestamps.sh` | Standalone cleanup date and time prefixes, same-day completion, midnight rollover, unprefixed multiline continuations, labeled errors and warnings, and prefix-free verbose-message gating. |
-| `test-cli.sh` | Help, version, parameterless guidance, option validation, quoted globs, unusual filenames, dry runs, recursive and nonrecursive traversal, symlink refusal, output conflicts and collisions, quality controls, default scan-clean mode, verbose CLI reporting, exact-file publication, multi-file progress, and success/skipped summaries. |
+| `test-cli.sh` | Help, version, parameterless guidance, option validation, quoted globs, unusual filenames, dry runs, recursive and nonrecursive traversal, symlink refusal, output conflicts and collisions, quality controls, default scan-clean mode, verbose CLI reporting, exact-file publication, multi-file progress, success/skipped summaries, and recovered-output failure summaries. |
 | `test-real-gs.sh` | Real Ghostscript output for all three quality presets in color and grayscale, detailed quality controls, verbose conversion stages, exact output, and smaller-file replacement; every result is parsed again by Ghostscript. |
 | `test-scan-inspection.sh` | Focused PDF scan-cleanup acceptance of a structurally associated soft mask; searchable-text and residual-vector detection; and refusal guards for invalid page counts, encryption, forms, JavaScript, geometry, attachments, links, named destinations, image type/count/DPI, and orphaned or mismatched masks. |
 | `test-scan-content-choice.sh` | Independently constructed image-plus-text PDF; safe non-interactive refusal; interactive clean, preserve, and default-Quit choices; text retention/removal; and conditional prior-output wording in a batch. |
@@ -85,8 +85,9 @@ macOS when `xattr` is available.
 
 ## Test doubles
 
-- `fake-gs.sh` simulates successful, failed, partial, empty, and slow
-  Ghostscript runs, plus metadata-only and same-size source changes. Its
+- `fake-gs.sh` simulates successful, recovery-warning, harmless-warning,
+  failed, partial, empty, and slow Ghostscript runs, plus metadata-only and
+  same-size source changes. Its
   optional bounded READY/RELEASE barrier makes concurrent tests deterministic.
 - `fake-magick.sh` delegates ordinary work to the real ImageMagick command and
   can simulate partial failure or delay. Its bounded READY/RELEASE barrier makes

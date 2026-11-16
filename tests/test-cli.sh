@@ -38,6 +38,9 @@ grep -q -- '^Possible exit codes:$' "$test_dir/help-long.out"
 grep -q -- '-v, --verbose' "$test_dir/help-long.out"
 grep -q -- 'safely reduces PDF file sizes' "$test_dir/help-long.out"
 grep -q -- 'For image output, use scan-clean.sh.' "$test_dir/help-long.out"
+grep -q -- 'NAME-recovered\[-N\]\.pdf' "$test_dir/help-long.out"
+grep -q -- 'Other output modes save the requested output but still return status 1' \
+    "$test_dir/help-long.out"
 grep -q -- '-i scan.jpg -o scan-cleaned.pdf --clean-scan standard' \
     "$test_dir/help-long.out"
 grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
@@ -46,7 +49,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.2' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.3' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -423,5 +426,30 @@ awk '
     count == 1 && $0 == "" { separator = 1; next }
     END { exit !found }
 ' "$test_dir/skip-second.out"
+
+recovery_batch=$test_dir/recovery-batch
+recovery_output=$test_dir/recovery-output
+mkdir "$recovery_batch"
+printf '%1000s\n' '%PDF-1.7 damaged batch one' \
+    >"$recovery_batch/one.pdf"
+printf '%1000s\n' '%PDF-1.7 damaged batch two' \
+    >"$recovery_batch/two.pdf"
+if FAKE_GS_MODE=recovered-success PATH="$test_path" \
+    "$cli" -i "$recovery_batch" --output-dir "$recovery_output" \
+    >"$test_dir/recovery-batch.out" \
+    2>"$test_dir/recovery-batch.err"; then
+    printf '%s\n' 'expected recovered output batch to require review' >&2
+    exit 1
+fi
+[[ -s $recovery_output/one.pdf && -s $recovery_output/two.pdf ]]
+[[ $(grep -c 'created with Ghostscript recovery warning:' \
+    "$test_dir/recovery-batch.out") -eq 2 ]]
+grep -Fq 'Summary: 2 files — 0 succeeded, 2 failed' \
+    "$test_dir/recovery-batch.out"
+grep -Eq '^  .*/one\.pdf$' "$test_dir/recovery-batch.out"
+grep -Eq '^  .*/two\.pdf$' "$test_dir/recovery-batch.out"
+[[ $(grep -Fc \
+    'Ghostscript repaired or ignored errors; manual review is required' \
+    "$test_dir/recovery-batch.out") -eq 2 ]]
 
 printf '%s\n' 'CLI integration tests passed'

@@ -78,6 +78,20 @@ if FAKE_GS_MODE=partial-failure PATH="$test_dir/bin:$PATH" \
 fi
 [[ $(shasum -a 256 "$log_file") == "$log_hash" ]]
 
+recovered_hash=$(shasum -a 256 <"$source_pdf")
+if FAKE_GS_MODE=recovered-success PATH="$test_dir/bin:$PATH" \
+    "$test_dir/cli/pdf-slim.sh" --replace --reprocess \
+    -i "$source_pdf" >"$test_dir/recovered.out" \
+    2>"$test_dir/recovered.err"; then
+    printf '%s\n' 'expected recovered conversion to require review' >&2
+    exit 1
+fi
+[[ $(shasum -a 256 <"$source_pdf") == "$recovered_hash" ]]
+[[ -s $test_dir/source-recovered.pdf ]]
+[[ $(shasum -a 256 "$log_file") == "$log_hash" ]]
+grep -Fq 'recovered candidate for review:' "$test_dir/recovered.out"
+grep -Fq 'manual review is required:' "$test_dir/recovered.err"
+
 FAKE_GS_MODE=success PATH="$test_dir/bin:$PATH" \
     "$test_dir/cli/pdf-slim.sh" --replace -i "$source_pdf" >/dev/null
 record_count=0

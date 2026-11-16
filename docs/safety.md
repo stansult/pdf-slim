@@ -17,6 +17,26 @@ removed after success, failure, timeout, or interruption.
 `scan-clean.sh` follows the same source checks and atomic-publication rules.
 Image overwrite requires explicit `-O` / `--overwrite`.
 
+## Ghostscript recovery warnings
+
+Ghostscript can exit successfully and produce a nonempty PDF while reporting
+that errors in the input were repaired or ignored. `pdf-slim.sh` treats that
+specific diagnostic as requiring manual review rather than as an ordinary
+success. Other Ghostscript warnings do not trigger this policy.
+
+With `--replace`, the original remains untouched. The converted candidate is
+published atomically beside it as `NAME-recovered.pdf`; if that name exists,
+the command chooses `NAME-recovered-2.pdf`, then the next available number,
+without overwriting any existing file.
+
+With exact-file or output-directory mode, the source is already separate from
+the requested destination, so the candidate is published there. The command
+reports that the output carries a recovery warning.
+
+Both cases return status `1`, include the file in batch failure summaries, and
+show Ghostscript's complete diagnostic for review. A recovered candidate is
+not recorded as a successful replacement-history outcome.
+
 ## Concurrent source activity
 
 Both commands inspect the source again after conversion. Changes to device,

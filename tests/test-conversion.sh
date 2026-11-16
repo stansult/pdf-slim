@@ -24,12 +24,46 @@ timeout_command=$(find_command timeout gtimeout)
 fake_gs=$project_dir/tests/fake-gs.sh
 printf '%s\n' '%PDF-1.7 fake input' >"$source_pdf"
 
+# Verify the recovery fixture independently before product behavior relies on
+# it: zero status, nonempty output, and the authentic Ghostscript summary.
+fixture_candidate=$test_dir/fixture-recovered.pdf
+set +o errexit
+fixture_output=$(FAKE_GS_MODE=recovered-success "$fake_gs" \
+    "-sOutputFile=$fixture_candidate" -f "$source_pdf" 2>&1)
+fixture_status=$?
+set -o errexit
+[[ $fixture_status -eq 0 && -s $fixture_candidate ]]
+grep -Fq 'This file had errors that were repaired or ignored.' \
+    <<<"$fixture_output"
+remove_candidate "$fixture_candidate"
+
 FAKE_GS_MODE=success
 export FAKE_GS_MODE
 : >"$candidate"
 convert_pdf "$source_pdf" "$candidate" "$timeout_command" "$fake_gs" 1s 0 preserve
 [[ -s $candidate ]]
 remove_candidate "$candidate"
+
+FAKE_GS_MODE=recovered-success
+: >"$candidate"
+convert_pdf "$source_pdf" "$candidate" "$timeout_command" "$fake_gs" \
+    1s 0 preserve
+[[ -s $candidate ]]
+[[ $GHOSTSCRIPT_RECOVERY_DETECTED -eq 1 ]]
+grep -Fq 'This file had errors that were repaired or ignored.' \
+    <<<"$GHOSTSCRIPT_RECOVERY_OUTPUT"
+remove_candidate "$candidate"
+
+FAKE_GS_MODE=warning-success
+: >"$candidate"
+convert_pdf "$source_pdf" "$candidate" "$timeout_command" "$fake_gs" \
+    1s 0 preserve
+[[ -s $candidate ]]
+[[ $GHOSTSCRIPT_RECOVERY_DETECTED -eq 0 ]]
+[[ -z $GHOSTSCRIPT_RECOVERY_OUTPUT ]]
+remove_candidate "$candidate"
+
+FAKE_GS_MODE=success
 
 args_file=$test_dir/gs-args
 FAKE_GS_ARGS_FILE=$args_file

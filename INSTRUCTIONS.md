@@ -58,12 +58,13 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-The current `pdf-slim.sh` 1.6.2 implementation provides safe
+The current `pdf-slim.sh` 1.6.3 implementation provides safe
 traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
 state directory, guarded image-backed scan cleanup, timestamped operational
-output, and bounded concurrent PDF page cleanup. PDF cleanup automatically uses
+output, successful-recovery warning handling, and bounded concurrent PDF page
+cleanup. PDF cleanup automatically uses
 the smaller of its page count and five workers; explicit `--jobs N` overrides
 that choice. It privately records anonymous PDF scan-clean workload,
 concurrency, timing, size, machine-capacity, and outcome metrics for future
@@ -287,6 +288,14 @@ The user has approved these decisions:
     terminal is available. On Quit, stop immediately with status `2`; mention
     previously saved files in the Quit choice only when at least one output was
     actually published earlier in the invocation.
+24. When zero-status Ghostscript output says that PDF errors were repaired or
+    ignored, require manual review and return status `1`. In replacement mode,
+    retain the byte-identical original and atomically save the converted result
+    beside it as `NAME-recovered.pdf` or the next available numbered name. In
+    exact-file and output-directory modes, publish at the requested destination
+    but report it as created with a recovery warning. Include these cases in
+    batch failure summaries and never add them to replacement history. Do not
+    treat unrelated Ghostscript warnings as recovery evidence.
 
 Implemented options:
 
@@ -363,11 +372,9 @@ practical, print captured diagnostics, and require the result to be a nonempty
 regular file. Warning-string inspection can supplement but never replace
 exit-status checks.
 
-Recovery-warning handling remains future work: a successful Ghostscript exit
-that reports repairing or recovering a damaged PDF must never cause
-`--replace` to replace the original. The intended behavior is to preserve the
-original and retain a separate recovered candidate for inspection; its public
-reporting and artifact naming still need to be designed and approved.
+When a successful Ghostscript run reports that input errors were repaired or
+ignored, apply decision 24 rather than treating the candidate as an ordinary
+success.
 
 ### 4. Safe output publication and replacement
 
@@ -457,6 +464,10 @@ doubles where useful. At minimum cover:
   cleanup, grayscale conversion, assembly, and final PDF rendering.
 - multi-file normal and verbose output separation, success/failure summaries,
   concise failure reasons, and replacement-history skipped counts.
+- zero-status Ghostscript recovery diagnostics, byte-identical replacement
+  sources, collision-safe review artifacts, separate-output publication,
+  status `1`, batch summaries, harmless-warning exclusion, and no history
+  update.
 
 Always run the complete suite and static checks before committing executable or
 test changes:
@@ -479,15 +490,13 @@ deliberately excludes subjective visual-quality and performance comparisons.
 
 ## Deferred work
 
-1. Implement the Ghostscript recovery-warning behavior described above, with
-   tests for zero-status repaired/recovered input and safe `--replace` handling.
-2. Design a regular version-2 history-integrity check covering the header,
+1. Design a regular version-2 history-integrity check covering the header,
    complete records, valid fields, duplicate records, permissions, and possibly
    stale paths. Decide whether it belongs in `pdf-slim.sh`, a separate command,
    or maintenance tests before implementation.
-3. Keep forced PDF 1.4 compatibility or a PDF-version option deferred unless a
+2. Keep forced PDF 1.4 compatibility or a PDF-version option deferred unless a
    concrete compatibility need appears.
-4. Monitor an intermittent Dropbox/macOS File Provider publication issue before
+3. Monitor an intermittent Dropbox/macOS File Provider publication issue before
    changing code. In one exact-output run, `pdf-slim.sh` passed its immediate
    atomic-publication checks and reported `created`, but the requested name was
    absent afterward while the valid result remained under its hidden
@@ -536,6 +545,5 @@ request is already authorization for that stated change.
 ## Immediate next step
 
 Collect representative `performance.tsv` history before reevaluating the
-automatic concurrency cap. The next deferred safety improvement remains
-Ghostscript recovery-warning handling, which also requires explicit design
-approval.
+automatic concurrency cap. The next deferred maintenance design is the regular
+version-2 replacement-history integrity check.

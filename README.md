@@ -10,7 +10,7 @@
 Use `pdf-slim.sh` when output should be PDF. Use `scan-clean.sh` when output
 should remain an image.
 
-Current versions: `pdf-slim.sh` 1.6.2 and `scan-clean.sh` 1.2.2.
+Current versions: `pdf-slim.sh` 1.6.3 and `scan-clean.sh` 1.2.2.
 
 ## Quick start
 
@@ -76,6 +76,9 @@ See [additional PDF examples](docs/examples.md) and the
   skipped counts plus concise failure reasons.
 - Records successful replacement outcomes and skips only unchanged files with
   matching identity and processing policy.
+- Detects Ghostscript's successful-but-repaired result. Replacement mode keeps
+  the original and saves a collision-safe recovered candidate for review;
+  separate-output modes retain their output but report status `1`.
 - Provides gentle, standard, and strong cleanup for safely detected image-backed
   scans, with bounded per-page paper-color neutralization and midtone ink
   darkening, while preserving visible page geometry, resolution, and color by
@@ -191,6 +194,14 @@ successful, validated conversion is strictly smaller and the source is proven
 unchanged. Exact-file and output-directory modes do not silently overwrite
 destinations. Temporary candidates are removed after success, failure, timeout,
 or interruption.
+
+If Ghostscript exits successfully but reports that input errors were repaired
+or ignored, the result requires manual review. With `--replace`, the original
+is left untouched and the candidate is saved beside it as
+`NAME-recovered.pdf`, or `NAME-recovered-N.pdf` when needed. Exact-file and
+output-directory modes publish at the requested destination. Every such case
+returns status `1`, appears as a failure in batch summaries, and is not added
+to replacement history.
 
 Scan cleanup first verifies page-image structure and detects content that
 flattening could discard. Forms, JavaScript, attachments, links, named

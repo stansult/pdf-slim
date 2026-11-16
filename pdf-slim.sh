@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.6.2'
+VERSION='1.6.3'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -27,6 +27,10 @@ LOG_RECORD_TIMESTAMPS=()
 LOG_RECORD_ARTIFACTS=()
 PROCESS_OUTCOME=''
 PROCESS_ARTIFACT=''
+PROCESS_SAVED_OUTPUT=0
+GHOSTSCRIPT_RECOVERY_DETECTED=0
+GHOSTSCRIPT_RECOVERY_OUTPUT=''
+RECOVERED_ARTIFACT_PATH=''
 OPERATIONAL_OUTPUT_STARTED=0
 OPERATIONAL_START_DATE=''
 OPERATIONAL_LAST_STREAM='stderr'
@@ -127,6 +131,9 @@ Important:
   When an otherwise eligible scan contains text or visible vector content,
   interactive runs offer to clean and rasterize, preserve text without scan
   cleanup, or quit. Non-interactive runs refuse the affected file safely.
+  If Ghostscript reports repairing or ignoring PDF errors, --replace keeps the
+  original and saves a collision-safe NAME-recovered[-N].pdf for review.
+  Other output modes save the requested output but still return status 1.
   Primary operational and verbose messages are prefixed with local [HH:MM:SS].
   Verbose detail omits repeated program labels; errors and warnings retain them.
   Continuation lines remain unprefixed. The local date is printed before the
@@ -399,6 +406,68 @@ remove_candidate() {
     if [[ -n $candidate && ( -e $candidate || -L $candidate ) ]]; then
         rm -f -- "$candidate"
     fi
+}
+
+ghostscript_reported_recovery() {
+    case $1 in
+        *'This file had errors that were repaired or ignored.'*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+publish_recovered_candidate() {
+    local candidate=$1
+    local source=$2
+    local base destination candidate_identity destination_identity
+    local index=1
+
+    RECOVERED_ARTIFACT_PATH=''
+    base=${source%.[pP][dD][fF]}
+    candidate_identity=$(stat -f '%d:%i' -- "$candidate" 2>/dev/null || \
+        stat -c '%d:%i' -- "$candidate") || {
+        error "could not identify recovered PDF candidate: $source"
+        return 1
+    }
+    while true; do
+        if (( index == 1 )); then
+            destination=$base-recovered.pdf
+        else
+            destination=$base-recovered-$index.pdf
+        fi
+        if [[ -e $destination || -L $destination ]]; then
+            ((index += 1))
+            continue
+        fi
+        if ! mv -n -- "$candidate" "$destination"; then
+            if [[ ( -e $destination || -L $destination ) && \
+                ( -e $candidate || -L $candidate ) ]]; then
+                ((index += 1))
+                continue
+            fi
+            error "could not publish recovered PDF candidate: $destination"
+            return 1
+        fi
+        if [[ -e $candidate || -L $candidate ]]; then
+            ((index += 1))
+            continue
+        fi
+        if [[ ! -f $destination || -L $destination || ! -s $destination ]]; then
+            error "published recovered candidate is not a valid nonempty regular file: $destination"
+            return 1
+        fi
+        destination_identity=$(stat -f '%d:%i' -- "$destination" 2>/dev/null || \
+            stat -c '%d:%i' -- "$destination") || {
+            error "could not identify published recovered candidate: $destination"
+            return 1
+        }
+        if [[ $destination_identity != "$candidate_identity" ]]; then
+            error "recovered candidate changed during publication: $destination"
+            return 1
+        fi
+        ACTIVE_CANDIDATE=''
+        RECOVERED_ARTIFACT_PATH=$destination
+        return 0
+    done
 }
 
 file_mode() {
@@ -1908,6 +1977,9 @@ convert_pdf() {
     local pass_through_jpeg=true
     local -a gs_args
 
+    GHOSTSCRIPT_RECOVERY_DETECTED=0
+    GHOSTSCRIPT_RECOVERY_OUTPUT=''
+
     if [[ ! -f $candidate || -L $candidate || -s $candidate ]]; then
         error "candidate must be an existing empty regular file: $candidate"
         return 1
@@ -2047,6 +2119,11 @@ convert_pdf() {
         fi
         remove_candidate "$candidate"
         return 1
+    fi
+
+    if ghostscript_reported_recovery "$output"; then
+        GHOSTSCRIPT_RECOVERY_DETECTED=1
+        GHOSTSCRIPT_RECOVERY_OUTPUT=$output
     fi
 
     return 0
@@ -2304,6 +2381,7 @@ process_source_core() {
 
     PROCESS_OUTCOME=''
     PROCESS_ARTIFACT=''
+    PROCESS_SAVED_OUTPUT=0
     verbose "destination: $destination"
 
     if [[ $mode == output ]]; then
@@ -2437,6 +2515,45 @@ process_source_core() {
     }
     verbose "metadata preservation complete ($metadata_mode): $source"
 
+    if (( GHOSTSCRIPT_RECOVERY_DETECTED )); then
+        warn "Ghostscript repaired or ignored errors; manual review is required: $source"
+        if [[ -n $GHOSTSCRIPT_RECOVERY_OUTPUT ]]; then
+            operational_continuation stderr "$GHOSTSCRIPT_RECOVERY_OUTPUT"
+        fi
+        if [[ $mode == replace ]]; then
+            if ! verify_source_unchanged "$source" "$source_before" \
+                "$source_content_before" "$source_fingerprint" \
+                'before saving recovered candidate'; then
+                clear_active_files
+                return 1
+            fi
+            if (( SOURCE_CHECK_METADATA_CHANGED )); then
+                finalize_candidate_metadata "$source" "$candidate" \
+                    "$metadata_mode" "$timestamp_reference" || {
+                    error "could not refresh requested metadata: $source"
+                    clear_active_files
+                    return 1
+                }
+                verbose "metadata refreshed before saving recovered candidate ($metadata_mode): $source"
+            fi
+            publish_recovered_candidate "$candidate" "$source" || {
+                clear_active_files
+                return 1
+            }
+            PROCESS_ARTIFACT=$RECOVERED_ARTIFACT_PATH
+            PROCESS_SAVED_OUTPUT=1
+            remove_candidate "$timestamp_reference"
+            ACTIVE_METADATA_REFERENCE=''
+            operational_message stdout \
+                "recovered candidate for review: $PROCESS_ARTIFACT"
+            if (( CAPTURE_FAILURE_REASON )) && \
+                [[ -z $CAPTURED_FAILURE_REASON ]]; then
+                CAPTURED_FAILURE_REASON='Ghostscript repaired or ignored errors; original was not replaced'
+            fi
+            return 1
+        fi
+    fi
+
     if [[ $mode == replace ]]; then
         original_size=$(file_size "$source") || {
             error "could not determine original size: $source"
@@ -2513,9 +2630,19 @@ process_source_core() {
     ACTIVE_CANDIDATE=''
     remove_candidate "$timestamp_reference"
     ACTIVE_METADATA_REFERENCE=''
+    PROCESS_SAVED_OUTPUT=1
     if [[ $mode == replace ]]; then
         operational_message stdout "replaced: $source"
         PROCESS_OUTCOME='replaced'
+    elif (( GHOSTSCRIPT_RECOVERY_DETECTED )); then
+        PROCESS_ARTIFACT=$destination
+        operational_message stdout \
+            "created with Ghostscript recovery warning: $destination"
+        if (( CAPTURE_FAILURE_REASON )) && \
+            [[ -z $CAPTURED_FAILURE_REASON ]]; then
+            CAPTURED_FAILURE_REASON='Ghostscript repaired or ignored errors; manual review is required'
+        fi
+        return 1
     else
         operational_message stdout "created: $destination"
     fi
@@ -3108,9 +3235,6 @@ main() {
             fi
             source_succeeded=0
         else
-            if [[ $PROCESS_OUTCOME != kept-not-smaller ]]; then
-                ((SAVED_OUTPUT_COUNT += 1))
-            fi
             if [[ $mode == replace ]]; then
                 if [[ -z $PROCESS_OUTCOME ]]; then
                     error "replacement completed without a log outcome: ${sources[$i]}"
@@ -3127,6 +3251,9 @@ main() {
             fi
         fi
         CAPTURE_FAILURE_REASON=0
+        if (( PROCESS_SAVED_OUTPUT )); then
+            ((SAVED_OUTPUT_COUNT += 1))
+        fi
         if (( source_succeeded )); then
             ((succeeded_count += 1))
         else
