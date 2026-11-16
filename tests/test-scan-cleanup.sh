@@ -245,11 +245,44 @@ awk -F '\t' 'END { exit !($5 == "failed" && $6 == "inspection") }' \
 batch_output=$test_dir/batch
 if "$project_dir/pdf-slim.sh" --input "$scan_pdf" --input "$vector_pdf" \
     --output-dir "$batch_output" --clean-scan standard \
-    --preserve-metadata none >"$test_dir/batch.out" 2>"$test_dir/batch.err"; then
+    --preserve-metadata none >"$test_dir/batch.log" 2>&1; then
     printf '%s\n' 'expected a mixed scan/non-scan batch to report failure' >&2
     exit 1
 fi
 [[ -s $batch_output/scan.pdf ]]
 [[ ! -e $batch_output/vector.pdf ]]
+grep -Fq 'Summary: 2 files — 1 succeeded, 1 failed' "$test_dir/batch.log"
+grep -Fxq 'Failures:' "$test_dir/batch.log"
+grep -Fxq "  $vector_pdf" "$test_dir/batch.log"
+grep -Fxq '    scan cleanup refuses PDFs containing searchable text' \
+    "$test_dir/batch.log"
+awk '
+    /created: .*\/scan\.pdf$/ { after_success = 1; next }
+    after_success && $0 == "" { after_success = 0; separator = 1; next }
+    separator && /processing: .*\/vector\.pdf$/ { separated_files = 1 }
+    /error: scan cleanup refuses PDFs containing searchable text:/ {
+        after_failure = 1
+        next
+    }
+    after_failure && $0 == "" { after_failure = 0; before_summary = 1; next }
+    before_summary && /Summary: 2 files/ { separated_summary = 1 }
+    END { exit !(separated_files && separated_summary) }
+' "$test_dir/batch.log"
+
+verbose_batch_output=$test_dir/batch-verbose
+if "$project_dir/pdf-slim.sh" -v --input "$scan_pdf" --input "$vector_pdf" \
+    --output-dir "$verbose_batch_output" --clean-scan standard \
+    --preserve-metadata none >"$test_dir/batch-verbose.log" 2>&1; then
+    printf '%s\n' 'expected verbose mixed batch to report failure' >&2
+    exit 1
+fi
+grep -Fq 'Summary: 2 files — 1 succeeded, 1 failed' \
+    "$test_dir/batch-verbose.log"
+awk '
+    /verbose: timeout:/ { after_settings = 1; next }
+    after_settings && $0 == "" { after_settings = 0; separator = 1; next }
+    separator && /verbose: processing 1 of 2:/ { found = 1 }
+    END { exit !found }
+' "$test_dir/batch-verbose.log"
 
 printf '%s\n' 'scan cleanup tests passed'

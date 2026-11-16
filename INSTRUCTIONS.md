@@ -58,7 +58,7 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-The current `pdf-slim.sh` 1.4.1 implementation provides safe
+The current `pdf-slim.sh` 1.5.0 implementation provides safe
 traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
@@ -264,6 +264,11 @@ The user has approved these decisions:
     normal mode and summarize only with `--verbose`. Use Bash integer-second
     timing, `-` for unavailable TSV fields, no initial rotation, and at most one
     recording-failure warning per invocation.
+22. For non-dry-run batches with more than one selected file, separate each
+    file's output block with one empty line. Finish with total, succeeded,
+    failed, and—when applicable—replacement-history skipped counts. If anything
+    failed, add a concise filename-and-reason list. Omit the summary for a
+    single file and omit the failure list when everything succeeded.
 
 Implemented options:
 
@@ -429,6 +434,8 @@ doubles where useful. At minimum cover:
   including mode progression and faint-mark retention;
 - end-to-end multipage PDF paper-tone consistency through rendering, standard
   cleanup, grayscale conversion, assembly, and final PDF rendering.
+- multi-file normal and verbose output separation, success/failure summaries,
+  concise failure reasons, and replacement-history skipped counts.
 
 Always run the complete suite and static checks before committing executable or
 test changes:

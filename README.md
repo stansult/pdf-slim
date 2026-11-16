@@ -10,7 +10,7 @@
 Use `pdf-slim.sh` when output should be PDF. Use `scan-clean.sh` when output
 should remain an image.
 
-Current versions: `pdf-slim.sh` 1.4.1 and `scan-clean.sh` 1.1.0.
+Current versions: `pdf-slim.sh` 1.5.0 and `scan-clean.sh` 1.1.0.
 
 ## Quick start
 
@@ -70,6 +70,9 @@ See [additional PDF examples](docs/examples.md) and the
   collisions or existing output files.
 - Supports dry-run planning, configurable quality, grayscale conversion,
   metadata policies, per-file timeouts, and verbose diagnostics.
+- Separates per-file output in multi-file conversion runs and finishes with
+  total, succeeded, failed, and applicable skipped counts plus concise failure
+  reasons.
 - Records successful replacement outcomes and skips only unchanged files with
   matching identity and processing policy.
 - Provides gentle, standard, and strong cleanup for safely detected image-only

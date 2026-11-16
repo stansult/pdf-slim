@@ -46,7 +46,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.4.1' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.5.0' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -133,6 +133,10 @@ grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] processing:' \
     "$test_dir/exact.out"
 grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] created:' \
     "$test_dir/exact.out"
+if grep -q 'Summary:' "$test_dir/exact.out"; then
+    printf '%s\n' 'single-file conversion unexpectedly printed a summary' >&2
+    exit 1
+fi
 [[ ! -e $test_dir/cli/processed_pdfs.log ]]
 
 exact_dry_output=$test_dir/exact-dry-output.pdf
@@ -387,5 +391,30 @@ PATH="$test_path" "$cli" --dry-run --replace -i "$test_dir/input/link.pdf" \
     >"$test_dir/symlink.out" 2>"$test_dir/symlink.err"
 grep -q 'skipping symlink:' "$test_dir/symlink.err"
 [[ ! -s $test_dir/symlink.out ]]
+
+skip_dir=$test_dir/skip-input
+skip_state=$test_dir/skip-state
+mkdir "$skip_dir"
+printf '%200s\n' '%PDF-1.7 skip one' >"$skip_dir/one.pdf"
+printf '%200s\n' '%PDF-1.7 skip two' >"$skip_dir/two.pdf"
+PDF_SLIM_STATE_DIR="$skip_state" FAKE_GS_MODE=success PATH="$test_path" \
+    "$cli" --replace -i "$skip_dir" >"$test_dir/skip-first.out"
+grep -Fq 'Summary: 2 files — 2 succeeded, 0 failed' \
+    "$test_dir/skip-first.out"
+PDF_SLIM_STATE_DIR="$skip_state" FAKE_GS_MODE=success PATH="$test_path" \
+    "$cli" --replace -i "$skip_dir" >"$test_dir/skip-second.out"
+grep -Fq 'Summary: 2 files — 0 succeeded, 0 failed, 2 skipped' \
+    "$test_dir/skip-second.out"
+[[ $(grep -c 'skipped unchanged file recorded as processed:' \
+    "$test_dir/skip-second.out") -eq 2 ]]
+awk '
+    /skipped unchanged file recorded as processed:/ {
+        count += 1
+        if (count == 2 && separator) found = 1
+        next
+    }
+    count == 1 && $0 == "" { separator = 1; next }
+    END { exit !found }
+' "$test_dir/skip-second.out"
 
 printf '%s\n' 'CLI integration tests passed'

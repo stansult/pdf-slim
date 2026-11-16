@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.4.1'
+VERSION='1.5.0'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -46,6 +46,13 @@ METRIC_MEMORY_BYTES='-'
 SCAN_IMAGE_WIDTH=()
 SCAN_IMAGE_HEIGHT=()
 SCAN_IMAGE_COLOR=()
+CAPTURE_FAILURE_REASON=0
+CAPTURED_FAILURE_REASON=''
+BATCH_LAYOUT_ENABLED=0
+BATCH_FILE_BLOCKS_EMITTED=0
+BATCH_SKIPPED_COUNT=0
+BATCH_FAILURE_SOURCES=()
+BATCH_FAILURE_REASONS=()
 
 usage() {
     cat <<EOF
@@ -110,6 +117,8 @@ Important:
   Exactly one output mode is required. --replace modifies an original only
   after successful validation and only when the result is smaller.
   Quote input glob patterns. Symlinks are skipped.
+  Multi-file conversion runs separate each file with a blank line and finish
+  with counts plus a concise list of failures.
   Primary operational messages are prefixed with local [HH:MM:SS]; continuation
   lines remain unprefixed. The local date is printed before the first message
   and again after the last only if it changed.
@@ -219,6 +228,9 @@ finish_operational_output() {
 }
 
 error() {
+    if (( CAPTURE_FAILURE_REASON )) && [[ -z $CAPTURED_FAILURE_REASON ]]; then
+        CAPTURED_FAILURE_REASON=$*
+    fi
     operational_message stderr "$PROGRAM: error: $*"
 }
 
@@ -233,6 +245,52 @@ hint() {
 verbose() {
     (( VERBOSE )) || return 0
     operational_message stderr "$PROGRAM: verbose: $*"
+}
+
+begin_batch_file_block() {
+    (( BATCH_LAYOUT_ENABLED )) || return 0
+    if (( BATCH_FILE_BLOCKS_EMITTED > 0 || VERBOSE )); then
+        raw_output_line stdout ''
+    fi
+    ((BATCH_FILE_BLOCKS_EMITTED += 1))
+}
+
+record_batch_failure() {
+    local source=$1
+    local reason=$2
+
+    if [[ -z $reason ]]; then
+        reason='conversion failed without a specific error message'
+    elif [[ $reason == *": $source" ]]; then
+        reason=${reason%": $source"}
+    fi
+    BATCH_FAILURE_SOURCES[${#BATCH_FAILURE_SOURCES[@]}]=$source
+    BATCH_FAILURE_REASONS[${#BATCH_FAILURE_REASONS[@]}]=$reason
+}
+
+print_batch_summary() {
+    local total=$1
+    local succeeded=$2
+    local failed=$3
+    local skipped=$4
+    local text i
+
+    (( total > 1 )) || return 0
+    raw_output_line stdout ''
+    text="Summary: $total files — $succeeded succeeded, $failed failed"
+    if (( skipped > 0 )); then
+        text="$text, $skipped skipped"
+    fi
+    if (( failed > 0 )); then
+        text=$text$'\n\nFailures:'
+        i=0
+        while (( i < ${#BATCH_FAILURE_SOURCES[@]} )); do
+            text=$text$'\n  '${BATCH_FAILURE_SOURCES[$i]}
+            text=$text$'\n    '${BATCH_FAILURE_REASONS[$i]}
+            ((i += 1))
+        done
+    fi
+    operational_block stdout "$text"
 }
 
 expand_input_pattern() (
@@ -963,8 +1021,10 @@ filter_logged_sources() {
             ((j += 1))
         done
         if (( matched )); then
+            begin_batch_file_block
             operational_message stdout \
                 "skipped unchanged file recorded as processed: ${sources[$i]}"
+            ((BATCH_SKIPPED_COUNT += 1))
         else
             kept_sources[${#kept_sources[@]}]=${sources[$i]}
             kept_source_keys[${#kept_source_keys[@]}]=${source_keys[$i]}
@@ -2417,11 +2477,20 @@ main() {
     local pdfimages_command pdftotext_command pdfdetach_command
     local pdftocairo_command scan_clean_command
     local failures=0 i needs_pdf_scan_tools=0
+    local discovered_count=0 succeeded_count=0 failed_count=0
+    local source_succeeded
     ACTIVE_CANDIDATE=''
     ACTIVE_METADATA_REFERENCE=''
     ACTIVE_SCAN_DIRECTORY=''
     ACTIVE_SCAN_WORKERS=()
     ACTIVE_LOG_LOCK=''
+    CAPTURE_FAILURE_REASON=0
+    CAPTURED_FAILURE_REASON=''
+    BATCH_LAYOUT_ENABLED=0
+    BATCH_FILE_BLOCKS_EMITTED=0
+    BATCH_SKIPPED_COUNT=0
+    BATCH_FAILURE_SOURCES=()
+    BATCH_FAILURE_REASONS=()
     VERBOSE=0
 
     if (( $# == 0 )); then
@@ -2765,6 +2834,10 @@ main() {
         fi
         return 0
     fi
+    discovered_count=${#sources[@]}
+    if (( discovered_count > 1 )); then
+        BATCH_LAYOUT_ENABLED=1
+    fi
     script_path=$(realpath -- "$0") || {
         error 'could not resolve the script path for replacement logging'
         return 2
@@ -2836,6 +2909,7 @@ main() {
         filter_logged_sources "$lookup_log" "$processing_policy" || return 2
     fi
     if (( ${#sources[@]} == 0 )); then
+        print_batch_summary "$discovered_count" 0 0 "$BATCH_SKIPPED_COUNT"
         return 0
     fi
     plan_actions || return 2
@@ -2897,30 +2971,41 @@ main() {
     trap 'exit 143' TERM
     i=0
     while (( i < ${#sources[@]} )); do
+        begin_batch_file_block
         verbose "processing $((i + 1)) of ${#sources[@]}: ${sources[$i]}"
         operational_message stdout "processing: ${sources[$i]}"
-        process_source "${sources[$i]}" "${relatives[$i]}" \
-            "${destinations[$i]}" "${source_types[$i]}" || {
-            failures=1
-            ((i += 1))
-            continue
-        }
-        if [[ $mode == replace ]]; then
+        CAPTURE_FAILURE_REASON=1
+        CAPTURED_FAILURE_REASON=''
+        source_succeeded=1
+        if ! process_source "${sources[$i]}" "${relatives[$i]}" \
+            "${destinations[$i]}" "${source_types[$i]}"; then
+            source_succeeded=0
+        elif [[ $mode == replace ]]; then
             if [[ -z $PROCESS_OUTCOME ]]; then
                 error "replacement completed without a log outcome: ${sources[$i]}"
-                failures=1
+                source_succeeded=0
             else
                 if append_replacement_log "$log_file" "${sources[$i]}" \
                     "$processing_policy" "$PROCESS_OUTCOME" \
                     "$PROCESS_ARTIFACT"; then
                     verbose "recorded replacement outcome: $PROCESS_OUTCOME"
                 else
-                    failures=1
+                    source_succeeded=0
                 fi
             fi
         fi
+        CAPTURE_FAILURE_REASON=0
+        if (( source_succeeded )); then
+            ((succeeded_count += 1))
+        else
+            failures=1
+            ((failed_count += 1))
+            record_batch_failure "${sources[$i]}" "$CAPTURED_FAILURE_REASON"
+        fi
         ((i += 1))
     done
+    print_batch_summary "$discovered_count" "$succeeded_count" \
+        "$failed_count" "$BATCH_SKIPPED_COUNT"
     trap - EXIT HUP INT TERM
     (( failures == 0 ))
 }
