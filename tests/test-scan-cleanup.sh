@@ -263,7 +263,7 @@ grep -Fxq '    scan cleanup requires exactly one image on every page (page 1)' \
 awk '
     /created: .*\/scan\.pdf$/ { after_success = 1; next }
     after_success && $0 == "" { after_success = 0; separator = 1; next }
-    separator && /processing: .*\/vector\.pdf$/ { separated_files = 1 }
+    separator && /processing 2 of 2: .*\/vector\.pdf$/ { separated_files = 1 }
     /error: scan cleanup requires exactly one image on every page/ {
         after_failure = 1
         next
@@ -285,8 +285,13 @@ grep -Fq 'Summary: 2 files — 1 succeeded, 1 failed' \
 awk '
     /verbose: timeout:/ { after_settings = 1; next }
     after_settings && $0 == "" { after_settings = 0; separator = 1; next }
-    separator && /verbose: processing 1 of 2:/ { found = 1 }
+    separator && /processing 1 of 2:/ { found = 1 }
     END { exit !found }
 ' "$test_dir/batch-verbose.log"
+if grep -q 'verbose: processing [0-9][0-9]* of [0-9][0-9]*:' \
+    "$test_dir/batch-verbose.log"; then
+    printf '%s\n' 'verbose batch unexpectedly duplicated progress output' >&2
+    exit 1
+fi
 
 printf '%s\n' 'scan cleanup tests passed'

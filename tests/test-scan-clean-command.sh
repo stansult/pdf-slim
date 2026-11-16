@@ -36,7 +36,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $("$cli" --version) == 'scan-clean.sh 1.2.0' ]]
+[[ $("$cli" --version) == 'scan-clean.sh 1.2.1' ]]
 
 if "$cli" >"$test_dir/no-input.out" 2>"$test_dir/no-input.err"; then
     printf '%s\n' 'expected missing input to fail' >&2

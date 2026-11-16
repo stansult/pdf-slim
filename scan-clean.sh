@@ -6,7 +6,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.2.0'
+VERSION='1.2.1'
 DEFAULT_TIMEOUT='1h'
 DEFAULT_MODE='standard'
 DEFAULT_JPEG_QUALITY='95'

@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.6.0'
+VERSION='1.6.1'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -122,8 +122,8 @@ Important:
   Exactly one output mode is required. --replace modifies an original only
   after successful validation and only when the result is smaller.
   Quote input glob patterns. Symlinks are skipped.
-  Multi-file conversion runs separate each file with a blank line and finish
-  with counts plus a concise list of failures.
+  Multi-file conversion runs show processing N of TOTAL, separate each file
+  with a blank line, and finish with counts plus a concise list of failures.
   When an otherwise eligible scan contains text or visible vector content,
   interactive runs offer to clean and rasterize, preserve text without scan
   cleanup, or quit. Non-interactive runs refuse the affected file safely.
@@ -3089,8 +3089,12 @@ main() {
     i=0
     while (( i < ${#sources[@]} )); do
         begin_batch_file_block
-        verbose "processing $((i + 1)) of ${#sources[@]}: ${sources[$i]}"
-        operational_message stdout "processing: ${sources[$i]}"
+        if (( ${#sources[@]} > 1 )); then
+            operational_message stdout \
+                "processing $((i + 1)) of ${#sources[@]}: ${sources[$i]}"
+        else
+            operational_message stdout "processing: ${sources[$i]}"
+        fi
         CAPTURE_FAILURE_REASON=1
         CAPTURED_FAILURE_REASON=''
         source_succeeded=1

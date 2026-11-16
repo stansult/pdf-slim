@@ -46,7 +46,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.0' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.1' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -401,6 +401,9 @@ PDF_SLIM_STATE_DIR="$skip_state" FAKE_GS_MODE=success PATH="$test_path" \
     "$cli" --replace -i "$skip_dir" >"$test_dir/skip-first.out"
 grep -Fq 'Summary: 2 files — 2 succeeded, 0 failed' \
     "$test_dir/skip-first.out"
+grep -Fq 'processing 1 of 2:' "$test_dir/skip-first.out"
+grep -Fq 'processing 2 of 2:' "$test_dir/skip-first.out"
+[[ $(grep -c 'processing [12] of 2:' "$test_dir/skip-first.out") -eq 2 ]]
 PDF_SLIM_STATE_DIR="$skip_state" FAKE_GS_MODE=success PATH="$test_path" \
     "$cli" --replace -i "$skip_dir" >"$test_dir/skip-second.out"
 grep -Fq 'Summary: 2 files — 0 succeeded, 0 failed, 2 skipped' \
