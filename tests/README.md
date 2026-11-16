@@ -39,6 +39,7 @@ commands themselves:
 - Poppler commands used by PDF scan cleanup: `pdfinfo`, `pdfimages`,
   `pdftotext`, `pdfdetach`, and `pdftocairo`.
 - GNU `timeout`, available as either `timeout` or `gtimeout`.
+- Expect (`expect`) for interactive choice coverage.
 - One SHA-256 provider: `shasum`, `sha256sum`, or `openssl`.
 - `realpath` and the standard macOS command-line tools.
 - ShellCheck for the separate lint command above.
@@ -61,13 +62,14 @@ macOS when `xattr` is available.
 | `test-scan-clean-timestamps.sh` | Standalone cleanup date and time prefixes, same-day completion, midnight rollover, unprefixed multiline continuations, and verbose-message gating. |
 | `test-cli.sh` | Help, version, parameterless guidance, option validation, quoted globs, unusual filenames, dry runs, recursive and nonrecursive traversal, symlink refusal, output conflicts and collisions, quality controls, default scan-clean mode, verbose CLI reporting, exact-file publication, and multi-file success/skipped summaries. |
 | `test-real-gs.sh` | Real Ghostscript output for all three quality presets in color and grayscale, detailed quality controls, verbose conversion stages, exact output, and smaller-file replacement; every result is parsed again by Ghostscript. |
-| `test-scan-inspection.sh` | Focused PDF scan-cleanup acceptance of a structurally associated soft mask and refusal guards for invalid page counts, encryption, forms, JavaScript, geometry, text, attachments, links, named destinations, image type/count/DPI, orphaned or mismatched masks, and residual vector content. |
-| `test-scan-cleanup.sh` | Real PDF scan cleanup at gentle, standard, and strong strengths; real alpha-image/soft-mask input; mixed 0/90/180/270-degree page geometry; verbose page stages and metrics summary; private success/failure metrics; page-size preservation; detailed and lossless quality paths; grayscale multipage output; refusal of visible vector/text content; normal and verbose mixed-batch separation, counts, and failure summaries. |
-| `test-scan-parallel.sh` | Independently validated controlled-worker overlap; explicit concurrency bounds; automatic `min(page count, 5)` selection; workload and worker metrics; ordered assembly; failed-page propagation and assembly suppression. |
+| `test-scan-inspection.sh` | Focused PDF scan-cleanup acceptance of a structurally associated soft mask; searchable-text and residual-vector detection; and refusal guards for invalid page counts, encryption, forms, JavaScript, geometry, attachments, links, named destinations, image type/count/DPI, and orphaned or mismatched masks. |
+| `test-scan-content-choice.sh` | Independently constructed image-plus-text PDF; safe non-interactive refusal; interactive clean, preserve, and default-Quit choices; text retention/removal; and conditional prior-output wording in a batch. |
+| `test-scan-cleanup.sh` | Real PDF scan cleanup at gentle, standard, and strong strengths; real alpha-image/soft-mask input; mixed 0/90/180/270-degree page geometry; singular-page verbose wording and metrics summary; private success/failure metrics; page-size preservation; detailed and lossless quality paths; grayscale multipage output; refusal of non-image page structure; normal and verbose mixed-batch separation, counts, and failure summaries. |
+| `test-scan-parallel.sh` | Independently validated controlled-worker overlap; explicit concurrency bounds; automatic `min(page count, 5)` selection; plural-page automatic/explicit worker wording; workload and worker metrics; ordered assembly; failed-page propagation and assembly suppression. |
 | `test-scan-clean-delegation.sh` | Discovery of the sibling or `PATH` cleanup engine; delegated mode, timeout, input/output, and metadata arguments; engine failure and timeout propagation; temporary-directory cleanup; missing dependency refusal. |
 | `test-image-to-pdf.sh` | Raster-image-to-PDF cleanup; physical sizing from credible or fallback density; detailed quality and grayscale; batch and recursive mapping; destination collisions; animated-image refusal; replacement prohibition. |
-| `test-pdf-scan-tones.sh` | Independently validated gray- and bright-paper pages assembled into an image-only PDF; end-to-end standard cleanup and grayscale conversion; final paper-tone consistency; dark-ink and faint-mark retention. |
-| `test-scan-clean-tones.sh` | Independently verified gray- and bright-paper fixtures; adaptive white-point guardrails and mode offsets; gray-paper whitening; bright-paper stability; progressive dark-ink contrast; faint-mark retention. |
+| `test-pdf-scan-tones.sh` | Independently validated gray-, bright-, and blue-cast paper fixtures assembled into image-only PDFs; end-to-end grayscale and color cleanup; final paper-tone consistency and neutrality; medium-ink darkening; faint-mark and colored-mark retention. |
+| `test-scan-clean-tones.sh` | Independently verified gray-, bright-, and blue-cast paper fixtures; adaptive white-point and white-balance guardrails; gray-paper whitening; bright-paper stability; progressive midtone-ink darkening; faint-mark and colored-mark retention. |
 | `test-scan-clean-command.sh` | Standalone image cleanup help and validation; default and all-mode naming; verbose CLI reporting; overwrite behavior; metadata, transparency, background, density, and JPEG quality; directory/glob filtering; metadata-only source churn and real source-change detection; publication races; signal, partial-failure, timeout, and temporary cleanup. |
 
 ## Test doubles
@@ -78,8 +80,9 @@ macOS when `xattr` is available.
 - `fake-magick.sh` delegates ordinary work to the real ImageMagick command and
   can simulate partial failure or delay. Its bounded READY/RELEASE barrier makes
   source-change, publication-race, and signal tests deterministic.
-- `fake-scan-inspector.sh` supplies intentional PDF-inspection results so each
-  destructive-flattening refusal can be tested independently.
+- `fake-scan-inspector.sh` supplies intentional PDF-inspection results so
+  destructive-flattening detection and refusal paths can be tested
+  independently.
 - `fake-scan-clean.sh` records delegated arguments and can simulate cleanup
   failure or delay.
 

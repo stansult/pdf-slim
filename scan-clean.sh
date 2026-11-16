@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# Adaptive cleanup for photographed or scanned document images, with safe
-# single-file and nonrecursive batch output publication.
+# Adaptive paper neutralization and text cleanup for photographed or scanned
+# document images, with safe single-file and nonrecursive batch publication.
 
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.1.0'
+VERSION='1.2.0'
 DEFAULT_TIMEOUT='1h'
 DEFAULT_MODE='standard'
 DEFAULT_JPEG_QUALITY='95'
@@ -16,6 +16,9 @@ OPERATIONAL_OUTPUT_STARTED=0
 OPERATIONAL_START_DATE=''
 OPERATIONAL_LAST_STREAM='stderr'
 PAPER_BRIGHTNESS_PERCENT=94
+PAPER_CAST_THRESHOLD=6
+MINIMUM_WHITE_BALANCE_GAIN='0.95'
+MAXIMUM_WHITE_BALANCE_GAIN='1.05'
 
 usage() {
     cat <<EOF
@@ -36,8 +39,9 @@ Output:
 Cleanup:
   -m, --mode MODE        gentle, standard (default), or strong
   --all-modes            Generate gentle, standard, and strong variants
-  Paper brightness is estimated independently for each image so gray paper can
-  approach white while the selected mode controls guarded contrast strength.
+  Paper brightness and color are estimated independently for each image so
+  paper can approach neutral white while the selected mode controls guarded
+  text and pencil-mark contrast.
 
 Image options:
   --jpeg-quality N       JPEG output quality, 1-100 (default: 95)
@@ -68,7 +72,10 @@ Important:
 Full documentation:
   https://github.com/stansult/pdf-slim
 
-Exit status: 0 success, 1 cleanup failure, 2 invalid or unsafe request.
+Possible exit codes:
+  0  Success
+  1  One or more cleanups failed
+  2  Invalid or unsafe request
 EOF
 }
 
@@ -583,6 +590,7 @@ prepare_output_directory() {
 detect_background_cast() {
     local source=$1
     local dominant_color red green blue minimum maximum histogram brightness
+    local target gain_values red_gain green_gain blue_gain
 
     run_command 'background inspection' "$source" "$magick_command" "$source" \
         -resize '10%' -colors 12 -depth 8 -format %c histogram:info:- || return 1
@@ -603,8 +611,29 @@ detect_background_cast() {
     (( blue > maximum )) && maximum=$blue
     brightness=$(((red + green + blue) * 100 / (3 * 255)))
     PAPER_BRIGHTNESS_PERCENT=$brightness
-    if (( maximum - minimum > 10 )); then
-        NORMALIZATION_ARGS=(-channel RGB -contrast-stretch '0x0.5%' +channel)
+    if (( maximum - minimum > PAPER_CAST_THRESHOLD )); then
+        target=$(awk -v red="$red" -v green="$green" -v blue="$blue" \
+            'BEGIN { printf "%.8f", (red + green + blue) / 3 }')
+        gain_values=$(awk -v red="$red" -v green="$green" \
+            -v blue="$blue" -v target="$target" \
+            -v minimum="$MINIMUM_WHITE_BALANCE_GAIN" \
+            -v maximum="$MAXIMUM_WHITE_BALANCE_GAIN" '
+                function clamp(value) {
+                    if (value < minimum) return minimum
+                    if (value > maximum) return maximum
+                    return value
+                }
+                BEGIN {
+                    printf "%.8f %.8f %.8f", clamp(target / red), \
+                        clamp(target / green), clamp(target / blue)
+                }')
+        read -r red_gain green_gain blue_gain <<<"$gain_values"
+        NORMALIZATION_ARGS=(
+            -channel R -evaluate multiply "$red_gain"
+            -channel G -evaluate multiply "$green_gain"
+            -channel B -evaluate multiply "$blue_gain"
+            +channel
+        )
     else
         NORMALIZATION_ARGS=()
     fi
@@ -651,6 +680,14 @@ levels_for_mode() {
     esac
 }
 
+midtone_gamma_for_mode() {
+    case $1 in
+        gentle) printf '%s\n' '0.85' ;;
+        standard) printf '%s\n' '0.70' ;;
+        strong) printf '%s\n' '0.60' ;;
+    esac
+}
+
 validate_candidate() {
     local candidate=$1
     local expected_width=$2
@@ -675,8 +712,9 @@ process_source() {
     local source_index=$1
     local source=${sources[$source_index]}
     local source_before source_content_before source_fingerprint
+    local source_paper_brightness
     local selected_mode destination parent temp_directory
-    local candidate levels icc_profile=''
+    local candidate tonal_candidate levels midtone_gamma icc_profile=''
     local -a selected_modes=()
     local -a candidate_files=()
     local -a candidate_destinations=()
@@ -706,12 +744,8 @@ process_source() {
     verbose "input: $source (${source_formats[$source_index]}, ${source_widths[$source_index]}x${source_heights[$source_index]})"
     verbose "inspecting document background: $source"
     detect_background_cast "$source" || return 1
-    verbose "paper brightness estimate: ${PAPER_BRIGHTNESS_PERCENT}%"
-    if (( ${#NORMALIZATION_ARGS[@]} )); then
-        verbose 'background cast normalization: enabled'
-    else
-        verbose 'background cast normalization: not needed'
-    fi
+    source_paper_brightness=$PAPER_BRIGHTNESS_PERCENT
+    verbose "paper brightness estimate: ${source_paper_brightness}%"
     for selected_mode in "${selected_modes[@]}"; do
         case $selected_mode in
             gentle) destination=${gentle_destinations[$source_index]} ;;
@@ -727,6 +761,7 @@ process_source() {
         }
         ACTIVE_TEMP_DIRECTORIES[${#ACTIVE_TEMP_DIRECTORIES[@]}]=$temp_directory
         candidate=$temp_directory/${destination##*/}
+        tonal_candidate=$temp_directory/tonal-cleanup.miff
         if (( ! strip_metadata )) &&
             [[ ,${source_profiles[$source_index]}, == *,[iI][cC][cC],* ]]; then
             icc_profile=$temp_directory/source.icc
@@ -738,17 +773,51 @@ process_source() {
         else
             icc_profile=''
         fi
+        PAPER_BRIGHTNESS_PERCENT=$source_paper_brightness
         levels=$(levels_for_mode "$selected_mode")
+        midtone_gamma=$(midtone_gamma_for_mode "$selected_mode")
         verbose "applying $selected_mode cleanup: $source -> $destination"
         image_args=(
             "$source"
             -auto-orient
-            "${NORMALIZATION_ARGS[@]}"
             -colorspace Lab
             -channel R
             -level "$levels"
+            -gamma "$midtone_gamma"
             +channel
             -colorspace sRGB
+            "$tonal_candidate"
+        )
+        run_command "cleanup mode $selected_mode" "$source" \
+            "$magick_command" "${image_args[@]}" || {
+            clear_active_temp_directories
+            return 1
+        }
+        verbose "measuring cleaned paper color: $source"
+        detect_background_cast "$tonal_candidate" || {
+            clear_active_temp_directories
+            return 1
+        }
+        if (( ${#NORMALIZATION_ARGS[@]} )); then
+            verbose 'final paper white balance: enabled'
+        else
+            verbose 'final paper white balance: not needed'
+        fi
+        image_args=(
+            "$tonal_candidate"
+            "${NORMALIZATION_ARGS[@]}"
+            '('
+            +clone
+            -colorspace Gray
+            -colorspace sRGB
+            ')'
+            '('
+            +clone
+            -colorspace Gray
+            -level '70%,95%'
+            ')'
+            -compose over
+            -composite
         )
         if is_jpeg_destination "$destination"; then
             image_args+=(
@@ -761,7 +830,7 @@ process_source() {
         (( strip_metadata )) && image_args+=(-strip)
         [[ -z $icc_profile ]] || image_args+=(-profile "$icc_profile")
         image_args+=("$candidate")
-        run_command "cleanup mode $selected_mode" "$source" \
+        run_command "final output encoding for $selected_mode" "$source" \
             "$magick_command" "${image_args[@]}" || {
             clear_active_temp_directories
             return 1

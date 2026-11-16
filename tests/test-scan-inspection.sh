@@ -99,6 +99,22 @@ run_inspection "$smask_directory"
 [[ ${SCAN_X_DPI[1]} == 300 ]]
 [[ ${SCAN_Y_DPI[1]} == 300 ]]
 
+text_directory=$test_dir/text
+mkdir "$text_directory"
+FAKE_SCAN_INSPECTION_MODE=text
+export FAKE_SCAN_INSPECTION_MODE
+run_inspection "$text_directory"
+[[ $SCAN_HAS_SEARCHABLE_TEXT -eq 1 ]]
+[[ $SCAN_HAS_VISIBLE_VECTOR_CONTENT -eq 0 ]]
+
+residual_directory=$test_dir/residual
+mkdir "$residual_directory"
+FAKE_SCAN_INSPECTION_MODE=residual
+export FAKE_SCAN_INSPECTION_MODE
+run_inspection "$residual_directory"
+[[ $SCAN_HAS_SEARCHABLE_TEXT -eq 0 ]]
+[[ $SCAN_HAS_VISIBLE_VECTOR_CONTENT -eq 1 ]]
+
 run_refusal() {
     local case_mode=$1
     local expected=$2
@@ -121,7 +137,6 @@ run_refusal encrypted 'unencrypted PDF'
 run_refusal form 'containing forms'
 run_refusal javascript 'containing JavaScript'
 run_refusal geometry 'page geometry'
-run_refusal text 'searchable text'
 run_refusal attachment 'embedded files'
 run_refusal link 'containing links'
 run_refusal destination 'named destinations'
@@ -135,6 +150,5 @@ run_refusal smask-dimensions 'soft mask does not match its page image'
 run_refusal smask-dpi 'soft mask does not match its page image'
 run_refusal smask-color 'grayscale, single-component soft mask'
 run_refusal smask-two 'at most one associated soft mask'
-run_refusal residual 'visible text or vector content'
 
 printf '%s\n' 'scan inspection guard tests passed'

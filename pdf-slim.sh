@@ -7,11 +7,11 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.5.0'
+VERSION='1.6.0'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
-CONVERSION_POLICY_REVISION='1'
+CONVERSION_POLICY_REVISION='2'
 DEFAULT_IMAGE_INPUT_DPI='300'
 MINIMUM_CREDIBLE_IMAGE_DPI='150'
 AUTOMATIC_SCAN_JOB_CAP='5'
@@ -53,6 +53,11 @@ BATCH_FILE_BLOCKS_EMITTED=0
 BATCH_SKIPPED_COUNT=0
 BATCH_FAILURE_SOURCES=()
 BATCH_FAILURE_REASONS=()
+SCAN_HAS_SEARCHABLE_TEXT=0
+SCAN_HAS_VISIBLE_VECTOR_CONTENT=0
+SCAN_CLEAN_ACTION='clean'
+PROCESS_ABORT_REQUESTED=0
+SAVED_OUTPUT_COUNT=0
 
 usage() {
     cat <<EOF
@@ -87,9 +92,9 @@ Quality -- choose one approach:
 Do not combine --quality with --max-dpi or --jpeg-recompress.
 
 Scan cleanup:
-  --clean-scan [MODE]    Improve an image-only scan using gentle, standard, or
-                         strong adaptive paper whitening and contrast cleanup
-                         while retaining color
+  --clean-scan [MODE]    Improve an image-backed scan using gentle, standard, or
+                         strong adaptive paper neutralization and text-contrast
+                         cleanup while retaining color
                          (default mode: standard; with no quality options:
                          source DPI and JPEG QFactor 0.10; --grayscale remains
                          independent)
@@ -119,6 +124,9 @@ Important:
   Quote input glob patterns. Symlinks are skipped.
   Multi-file conversion runs separate each file with a blank line and finish
   with counts plus a concise list of failures.
+  When an otherwise eligible scan contains text or visible vector content,
+  interactive runs offer to clean and rasterize, preserve text without scan
+  cleanup, or quit. Non-interactive runs refuse the affected file safely.
   Primary operational messages are prefixed with local [HH:MM:SS]; continuation
   lines remain unprefixed. The local date is printed before the first message
   and again after the last only if it changed.
@@ -129,7 +137,7 @@ Full documentation:
 Possible exit codes:
   0  Success
   1  One or more conversions failed
-  2  Invalid or unsafe request
+  2  Invalid or unsafe request, or processing stopped by the user
 EOF
 }
 
@@ -232,6 +240,56 @@ error() {
         CAPTURED_FAILURE_REASON=$*
     fi
     operational_message stderr "$PROGRAM: error: $*"
+}
+
+prompt_scan_content_action() {
+    local source=$1
+    local found_text choice quit_note=''
+
+    if (( SCAN_HAS_SEARCHABLE_TEXT && SCAN_HAS_VISIBLE_VECTOR_CONTENT )); then
+        found_text="Searchable text and visible vector content found: $source"
+    elif (( SCAN_HAS_SEARCHABLE_TEXT )); then
+        found_text="Searchable text found: $source"
+    else
+        found_text="Visible vector content found: $source"
+    fi
+    if (( SAVED_OUTPUT_COUNT > 0 )); then
+        quit_note=' (previously processed files remain saved)'
+    fi
+    if [[ ! -t 0 || ! -t 2 ]]; then
+        error "scan cleanup found searchable text or visible vector content and cannot ask for a choice in a non-interactive session: $source"
+        operational_continuation stderr \
+            'Run the command in an interactive terminal to choose whether to clean, preserve text, or quit.'
+        return 1
+    fi
+
+    operational_block stderr "$found_text
+
+Scan cleanup cannot preserve selectable/searchable text or vector content. Choose:
+  [c] Clean scan — rasterize pages (searchable text will be removed!)
+  [p] Preserve text — continue without scan cleanup; apply all other options
+  [q] Quit — stop processing$quit_note"
+    while true; do
+        printf '%s' 'Choice [q]: ' >&2
+        if ! IFS= read -r choice; then
+            choice=q
+        fi
+        case $choice in
+            c|C)
+                SCAN_CLEAN_ACTION=clean
+                return 0
+                ;;
+            p|P)
+                SCAN_CLEAN_ACTION=preserve
+                return 0
+                ;;
+            q|Q|'')
+                SCAN_CLEAN_ACTION=quit
+                return 0
+                ;;
+            *) printf '%s\n' 'Please choose c, p, or q.' >&2 ;;
+        esac
+    done
 }
 
 warn() {
@@ -1364,6 +1422,9 @@ inspect_scan_pdf() {
     local -a smask_keys=()
     local -a fields=()
 
+    SCAN_HAS_SEARCHABLE_TEXT=0
+    SCAN_HAS_VISIBLE_VECTOR_CONTENT=0
+
     run_scan_command 'PDF inspection' "$source" "$timeout_command" \
         "$timeout_duration" "$pdfinfo_command" "$source" || return 1
     pages=$(printf '%s\n' "$SCAN_COMMAND_OUTPUT" | \
@@ -1441,8 +1502,7 @@ inspect_scan_pdf() {
         "$timeout_duration" "$pdftotext_command" "$source" - || return 1
     compact=$(printf '%s' "$SCAN_COMMAND_OUTPUT" | LC_ALL=C tr -d '[:space:]')
     if [[ -n $compact ]]; then
-        error "scan cleanup refuses PDFs containing searchable text: $source"
-        return 1
+        SCAN_HAS_SEARCHABLE_TEXT=1
     fi
 
     run_scan_command 'attachment inspection' "$source" "$timeout_command" \
@@ -1560,8 +1620,7 @@ inspect_scan_pdf() {
             "$residual" -format '%[fx:minima]' info: || return 1
         minimum=$SCAN_COMMAND_OUTPUT
         if ! awk -v value="$minimum" 'BEGIN { exit !(value >= 0.99999) }'; then
-            error "scan cleanup refuses PDFs containing visible text or vector content (page $i): $source"
-            return 1
+            SCAN_HAS_VISIBLE_VECTOR_CONTENT=1
         fi
         ((i += 1))
     done
@@ -1588,14 +1647,14 @@ clean_scan_pdf() {
     local output_x_dpi output_y_dpi
     local worker_pid worker_log worker_status worker_page worker_metrics
     local worker_duration
-    local stage_start
+    local stage_start page_word
     local next_page=1 failed=0
     local -a assembly_args=()
     local -a worker_pids=()
     local -a worker_logs=()
     local -a worker_pages=()
 
-    verbose "inspecting PDF for safe image-only cleanup: $source"
+    verbose "inspecting PDF for safe image-backed cleanup: $source"
     if (( METRICS_ACTIVE )); then
         METRIC_FAILURE_STAGE=inspection
         stage_start=$SECONDS
@@ -1609,19 +1668,46 @@ clean_scan_pdf() {
         fi
         return 1
     fi
+    SCAN_CLEAN_ACTION=clean
+    if (( SCAN_HAS_SEARCHABLE_TEXT || SCAN_HAS_VISIBLE_VECTOR_CONTENT )); then
+        if ! prompt_scan_content_action "$source"; then
+            if (( METRICS_ACTIVE )); then
+                METRIC_INSPECTION_SECONDS=$((SECONDS - stage_start))
+            fi
+            return 1
+        fi
+        case $SCAN_CLEAN_ACTION in
+            preserve)
+                METRICS_ACTIVE=0
+                verbose "continuing without scan cleanup to preserve text: $source"
+                return 0
+                ;;
+            quit)
+                METRICS_ACTIVE=0
+                PROCESS_ABORT_REQUESTED=1
+                operational_message stdout "stopped by user: $source"
+                return 1
+                ;;
+            clean)
+                verbose "continuing with scan cleanup; searchable text or vector content will be removed: $source"
+                ;;
+        esac
+    fi
     if (( METRICS_ACTIVE )); then
         METRIC_INSPECTION_SECONDS=$((SECONDS - stage_start))
         collect_scan_shape_metrics
     fi
-    verbose "scan inspection accepted $SCAN_PAGE_COUNT page(s): $source"
+    page_word=pages
+    (( SCAN_PAGE_COUNT == 1 )) && page_word=page
+    verbose "scan inspection accepted $SCAN_PAGE_COUNT $page_word: $source"
     if [[ $jobs == auto ]]; then
         jobs=$SCAN_PAGE_COUNT
         if (( jobs > AUTOMATIC_SCAN_JOB_CAP )); then
             jobs=$AUTOMATIC_SCAN_JOB_CAP
         fi
-        verbose "scan cleanup workers: $jobs (automatic for $SCAN_PAGE_COUNT page(s))"
+        verbose "scan cleanup workers: $jobs (automatic for $SCAN_PAGE_COUNT $page_word)"
     else
-        verbose "scan cleanup workers: $jobs (explicit for $SCAN_PAGE_COUNT page(s))"
+        verbose "scan cleanup workers: $jobs (explicit for $SCAN_PAGE_COUNT $page_word)"
     fi
     if (( METRICS_ACTIVE )); then
         METRIC_EFFECTIVE_WORKERS=$jobs
@@ -1715,7 +1801,7 @@ clean_scan_pdf() {
         )
         ((page += 1))
     done
-    verbose "assembling $SCAN_PAGE_COUNT cleaned page(s): $source"
+    verbose "assembling $SCAN_PAGE_COUNT cleaned $page_word: $source"
     run_scan_command 'cleaned PDF assembly' "$source" "$timeout_command" \
         "$timeout_duration" "$magick_command" "${assembly_args[@]}" \
         -compress Zip "$cleaned_pdf" || return 1
@@ -2283,6 +2369,15 @@ process_source_core() {
             clear_active_files
             return 1
         }
+        if [[ $source_type == pdf && $SCAN_CLEAN_ACTION == preserve ]]; then
+            conversion_source=$source
+            remove_scan_directory "$scan_directory" || {
+                clear_active_files
+                return 1
+            }
+            scan_directory=''
+            ACTIVE_SCAN_DIRECTORY=''
+        fi
     fi
     verbose "optimizing PDF with Ghostscript: $source"
     if (( METRICS_ACTIVE )); then
@@ -2420,7 +2515,9 @@ process_source() {
     METRIC_SOURCE_BYTES=$(file_size "$source" 2>/dev/null || printf '%s' '-')
     process_source_core "$@"
     status=$?
-    finish_performance_metrics "$status"
+    if (( METRICS_ACTIVE )); then
+        finish_performance_metrics "$status"
+    fi
     return "$status"
 }
 
@@ -2491,6 +2588,8 @@ main() {
     BATCH_SKIPPED_COUNT=0
     BATCH_FAILURE_SOURCES=()
     BATCH_FAILURE_REASONS=()
+    PROCESS_ABORT_REQUESTED=0
+    SAVED_OUTPUT_COUNT=0
     VERBOSE=0
 
     if (( $# == 0 )); then
@@ -2979,18 +3078,28 @@ main() {
         source_succeeded=1
         if ! process_source "${sources[$i]}" "${relatives[$i]}" \
             "${destinations[$i]}" "${source_types[$i]}"; then
+            if (( PROCESS_ABORT_REQUESTED )); then
+                CAPTURE_FAILURE_REASON=0
+                trap - EXIT HUP INT TERM
+                return 2
+            fi
             source_succeeded=0
-        elif [[ $mode == replace ]]; then
-            if [[ -z $PROCESS_OUTCOME ]]; then
-                error "replacement completed without a log outcome: ${sources[$i]}"
-                source_succeeded=0
-            else
-                if append_replacement_log "$log_file" "${sources[$i]}" \
-                    "$processing_policy" "$PROCESS_OUTCOME" \
-                    "$PROCESS_ARTIFACT"; then
-                    verbose "recorded replacement outcome: $PROCESS_OUTCOME"
-                else
+        else
+            if [[ $PROCESS_OUTCOME != kept-not-smaller ]]; then
+                ((SAVED_OUTPUT_COUNT += 1))
+            fi
+            if [[ $mode == replace ]]; then
+                if [[ -z $PROCESS_OUTCOME ]]; then
+                    error "replacement completed without a log outcome: ${sources[$i]}"
                     source_succeeded=0
+                else
+                    if append_replacement_log "$log_file" "${sources[$i]}" \
+                        "$processing_policy" "$PROCESS_OUTCOME" \
+                        "$PROCESS_ARTIFACT"; then
+                        verbose "recorded replacement outcome: $PROCESS_OUTCOME"
+                    else
+                        source_succeeded=0
+                    fi
                 fi
             fi
         fi

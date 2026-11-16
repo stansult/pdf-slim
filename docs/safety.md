@@ -15,8 +15,7 @@ publication to catch files created during conversion. Temporary candidates are
 removed after success, failure, timeout, or interruption.
 
 `scan-clean.sh` follows the same source checks and atomic-publication rules.
-Image overwrite requires explicit `-O` / `--overwrite`; PDF replacement
-requires explicit `--replace`.
+Image overwrite requires explicit `-O` / `--overwrite`.
 
 ## Concurrent source activity
 
@@ -32,9 +31,8 @@ preserved.
 PDF scan cleanup intentionally rebuilds pixels. Before flattening, it refuses:
 
 - encrypted PDFs;
-- detectable searchable text, forms, or JavaScript;
+- forms or JavaScript;
 - attachments, links, or named destinations;
-- visible vector content; and
 - pages without exactly one primary image.
 
 One grayscale, single-component soft mask is accepted only when its PDF object,
@@ -45,6 +43,24 @@ A rejected source is untouched. Other files in a batch continue, and the
 command returns status `1` when any conversion fails. Dry-run reports planned
 cleanup but defers destructive-flattening inspection so it remains write-free
 and does not launch Ghostscript.
+
+When a PDF otherwise qualifies for scan cleanup but contains detectable
+searchable text or visible vector content, an interactive run asks whether to:
+
+- clean and rasterize the pages, removing searchable/vector content;
+- preserve that content by continuing without scan cleanup while applying all
+  other selected options; or
+- quit immediately, leaving the current file untouched. If earlier batch
+  outputs were already saved, the Quit choice says that they remain saved.
+
+The default choice is Quit. A run without an interactive terminal fails safely
+instead of choosing on the user's behalf. Quitting returns status `2`; it does
+not roll back outputs that were successfully published earlier in the batch.
+The Preserve choice keeps the resolved PDF quality, grayscale, and metadata
+settings. With no explicit quality option, the scan-clean default remains
+source resolution with JPEG `QFactor 0.10`.
+With `--replace`, choosing Clean permits the smaller validated rasterized
+result to replace the searchable original under the normal replacement checks.
 
 ## Metadata policies
 

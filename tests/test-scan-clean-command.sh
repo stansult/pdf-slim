@@ -23,19 +23,20 @@ grep -q -- '-O, --overwrite' "$test_dir/help-long.out"
 grep -q -- '--all-modes' "$test_dir/help-long.out"
 grep -q -- '-v, --verbose' "$test_dir/help-long.out"
 grep -q -- 'standard (default)' "$test_dir/help-long.out"
-grep -q -- 'Paper brightness is estimated independently' \
+grep -q -- 'Paper brightness and color are estimated independently' \
     "$test_dir/help-long.out"
 grep -q -- 'improves photographed and scanned document images' \
     "$test_dir/help-long.out"
 grep -q -- 'For PDF output, use pdf-slim.sh.' "$test_dir/help-long.out"
 grep -q -- '-i scan.png -o scan-cleaned.jpg' "$test_dir/help-long.out"
 grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
+grep -q -- '^Possible exit codes:$' "$test_dir/help-long.out"
 if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     "$test_dir/help-long.out"; then
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $("$cli" --version) == 'scan-clean.sh 1.1.0' ]]
+[[ $("$cli" --version) == 'scan-clean.sh 1.2.0' ]]
 
 if "$cli" >"$test_dir/no-input.out" 2>"$test_dir/no-input.err"; then
     printf '%s\n' 'expected missing input to fail' >&2

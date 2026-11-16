@@ -58,11 +58,11 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-The current `pdf-slim.sh` 1.5.0 implementation provides safe
+The current `pdf-slim.sh` 1.6.0 implementation provides safe
 traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
-state directory, guarded image-only scan cleanup, timestamped operational
+state directory, guarded image-backed scan cleanup, timestamped operational
 output, and bounded concurrent PDF page cleanup. PDF cleanup automatically uses
 the smaller of its page count and five workers; explicit `--jobs N` overrides
 that choice. It privately records anonymous PDF scan-clean workload,
@@ -70,7 +70,7 @@ concurrency, timing, size, machine-capacity, and outcome metrics for future
 policy tuning; normal output remains unchanged and verbose mode reports a
 one-line summary.
 
-`scan-clean.sh` 1.1.0 implements adaptive gentle, standard,
+`scan-clean.sh` 1.2.0 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
 glob, or nonrecursive directory; supports exact, automatic, and output-directory
 publication; preserves image metadata and transparency where supported; and
@@ -118,13 +118,18 @@ The user explicitly approved these choices for `scan-clean.sh`:
     undecorated. Timestamp only the primary line of a logical output group;
     leave explanatory and external-tool continuation lines unprefixed. Support
     `-v` / `--verbose`, with diagnostics on standard error.
-14. Estimate dominant paper brightness independently for each image. Use
-    bounded adaptive white points of estimated brightness plus 2% within
-    90%–96% for gentle, estimated brightness within 88%–94% for standard, and
-    estimated brightness minus 2% within 86%–92% for strong. Retain the
-    existing 8%, 12%, and 16% black points respectively. PDF cleanup applies
-    the same analysis independently to each rendered page; grayscale remains a
-    later, orthogonal PDF conversion choice.
+14. Estimate dominant paper brightness and color independently for each image.
+    When the dominant RGB channel spread exceeds 6/255, map it toward neutral
+    using per-channel white-balance gains clamped to 0.95–1.05. Use bounded
+    adaptive white points of estimated brightness plus 2% within 90%–96% for
+    gentle, estimated brightness within 88%–94% for standard, and estimated
+    brightness minus 2% within 86%–92% for strong. Retain the 8%, 12%, and 16%
+    black points and apply luminance-only midtone gamma values 0.85, 0.70, and
+    0.60 respectively. After tonal cleanup, measure and apply the bounded white
+    balance, then neutralize bright paper through a luminance mask that blends
+    from none at 70% to full at 95%; darker colored marks remain outside the
+    mask. PDF cleanup applies the same analysis independently to each rendered
+    page; grayscale remains a later, orthogonal PDF conversion choice.
 
 The standalone engine was committed first. The subsequent PDF integration keeps
 the public `--clean-scan [gentle|standard|strong]` interface, defaulting to
@@ -218,16 +223,18 @@ The user has approved these decisions:
     literal path when its filename contains glob metacharacters, reject
     no-match patterns, and reject accidental unquoted multi-match expansion
     before conversion or writes with a quoting hint.
-13. Allow `--clean-scan [gentle|standard|strong]` for safely detected image-only
+13. Allow `--clean-scan [gentle|standard|strong]` for safely detected image-backed
     scans, defaulting to `standard` when the mode is omitted. Preserve page
     dimensions, source resolution, and color by default.
-    Estimate each page's paper brightness independently and use the bounded
-    adaptive white points defined in the standalone-cleanup decisions so gray
-    paper can approach white without further lifting already-white pages.
+    Estimate each page's paper brightness and color independently and use the
+    bounded white balance, adaptive white points, and midtone adjustment
+    defined in the standalone-cleanup decisions so cast or gray paper can
+    approach neutral white while printed text remains dark.
     With no quality arguments, re-encode changed pixels at `QFactor 0.10`;
     explicit quality controls override cleanup defaults, and `--grayscale`
-    remains independent. Refuse inputs whose detectable non-image content would
-    be lost by flattening.
+    remains independent. Detect non-image content that flattening would affect
+    and handle it through the explicit choices in decision 23; continue to
+    refuse unsafe PDF structures that the cleanup path cannot preserve.
 14. Prefix operational output with local `[HH:MM:SS]` wall-clock timestamps.
     Print `[YYYY-MM-DD]` before the first operational message and repeat the date
     after the last only when the run crosses midnight. Emit `processing:` before
@@ -259,16 +266,24 @@ The user has approved these decisions:
     remain private and anonymous, and recording failure must never change a
     conversion or publication result. Reconsider an opt-out only if a concrete
     need appears.
-21. Record every processed PDF `--clean-scan` attempt, including failures, but
-    not ordinary PDF conversion or single-raster-image input. Save silently in
-    normal mode and summarize only with `--verbose`. Use Bash integer-second
-    timing, `-` for unavailable TSV fields, no initial rotation, and at most one
-    recording-failure warning per invocation.
+21. Record every PDF `--clean-scan` attempt, including inspection and cleanup
+    failures, but not ordinary PDF conversion, single-raster-image input, or
+    searchable-text/vector-content prompts where the user chooses Preserve or
+    Quit. Save silently in normal mode and summarize only with `--verbose`.
+    Use Bash integer-second timing, `-` for unavailable TSV fields, no initial
+    rotation, and at most one recording-failure warning per invocation.
 22. For non-dry-run batches with more than one selected file, separate each
     file's output block with one empty line. Finish with total, succeeded,
     failed, and—when applicable—replacement-history skipped counts. If anything
     failed, add a concise filename-and-reason list. Omit the summary for a
     single file and omit the failure list when everything succeeded.
+23. When an otherwise eligible image-backed PDF contains searchable text or
+    visible vector content, prompt interactive users to clean and rasterize,
+    preserve the content by continuing without scan cleanup while applying all
+    other options, or quit. Default to Quit. Refuse safely when no interactive
+    terminal is available. On Quit, stop immediately with status `2`; mention
+    previously saved files in the Quit choice only when at least one output was
+    actually published earlier in the invocation.
 
 Implemented options:
 
@@ -290,8 +305,10 @@ Implemented options:
 - `--jpeg-recompress Q` — detailed JPEG encoding with Ghostscript QFactor
   `0.0` through `1.0`.
 - `--grayscale` — explicit and independent of quality mode.
-- `--clean-scan [MODE]` — gentle, standard, or strong image-only scan contrast
-  cleanup; omit the mode to use standard.
+- `--clean-scan [MODE]` — gentle, standard, or strong image-backed scan contrast
+  cleanup; omit the mode to use standard. For otherwise eligible PDFs with
+  searchable text or visible vector content, interactively choose clean and
+  rasterize, preserve the content without cleanup, or Quit.
 - `--jobs N` — override automatic PDF page cleanup with 1 through 11 workers;
   the default is `min(page count, 5)` and the option requires `--clean-scan`.
 - `--help` — document usage, defaults, behavior, and statuses.
@@ -430,8 +447,9 @@ doubles where useful. At minimum cover:
   metacharacter filenames, and safe rejection of unquoted multi-match usage;
 - no log update after failure/timeout;
 - dry-run performs no writes and launches no Ghostscript process;
-- bounded adaptive paper whitening for gray and already-white raster inputs,
-  including mode progression and faint-mark retention;
+- bounded adaptive paper neutralization for color-cast, gray, and already-white
+  raster inputs, including mode progression, midtone darkening, and faint- and
+  colored-mark retention;
 - end-to-end multipage PDF paper-tone consistency through rendering, standard
   cleanup, grayscale conversion, assembly, and final PDF rendering.
 - multi-file normal and verbose output separation, success/failure summaries,
@@ -462,8 +480,8 @@ detailed test-suite reference.
    or maintenance tests before implementation.
 4. Keep forced PDF 1.4 compatibility or a PDF-version option deferred unless a
    concrete compatibility need appears.
-5. Add GitHub Actions after the current concurrency change is complete, as a
-   separate commit. Start with one macOS workflow for pushes and pull requests:
+5. Add GitHub Actions as a separate future commit. Start with one macOS
+   workflow for pushes and pull requests:
    read-only repository permissions, a run timeout, installation of the
    documented Ghostscript, ImageMagick, Poppler, and ShellCheck dependencies,
    Bash syntax and ShellCheck validation, and the complete `./tests/run.sh`

@@ -17,6 +17,7 @@ for test_script in \
     test-cli.sh \
     test-real-gs.sh \
     test-scan-inspection.sh \
+    test-scan-content-choice.sh \
     test-scan-cleanup.sh \
     test-scan-parallel.sh \
     test-scan-clean-delegation.sh \

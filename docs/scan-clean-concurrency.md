@@ -8,14 +8,14 @@ improve that policy after broader real-world use.
 ## Scope and current status
 
 PDF scan cleanup renders and cleans independent pages before reassembling them
-in original order. Version 1.4.0 selects workers automatically using:
+in original order. Version 1.4.0 introduced automatic worker selection using:
 
 ```text
 effective workers = min(PDF page count, 5)
 ```
 
 An explicit `--jobs N`, accepting values from 1 through 11, overrides the
-automatic value; `--jobs 1` forces serial cleanup. Version 1.4.0 also records
+automatic value; `--jobs 1` forces serial cleanup. The same release introduced
 the performance metrics documented below.
 
 ## Implemented worker behavior and safety
@@ -138,11 +138,12 @@ different rule.
 
 ## Anonymous performance metrics
 
-One record is written after every processed PDF scan-cleanup attempt, including
-failures and attempts inside a larger batch. Ordinary PDF conversion and
-single-raster-image input are excluded because they do not use PDF page-worker
-concurrency. Records contain no path, filename, content hash, extracted text,
-or document content.
+One record is written after every PDF scan-cleanup attempt, including
+inspection failures and attempts inside a larger batch. Choosing Preserve or
+Quit at the searchable-text/vector-content prompt is excluded because no page
+cleanup runs. Ordinary PDF conversion and single-raster-image input are also
+excluded because they do not use PDF page-worker concurrency. Records contain
+no path, filename, content hash, extracted text, or document content.
 
 ### Human-readable completion line
 

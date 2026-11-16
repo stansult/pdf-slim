@@ -33,6 +33,14 @@ region_mean() {
         -format '%[fx:mean]' info:
 }
 
+region_rgb() {
+    local image=$1
+    local geometry=$2
+
+    magick "$image" -crop "$geometry" +repage \
+        -format '%[fx:mean.r] %[fx:mean.g] %[fx:mean.b]' info:
+}
+
 assert_between() {
     local label=$1
     local value=$2
@@ -49,10 +57,34 @@ assert_between() {
         }'
 }
 
+assert_channel_spread_at_most() {
+    local label=$1
+    local values=$2
+    local maximum_spread=$3
+
+    awk -v label="$label" -v values="$values" \
+        -v maximum_spread="$maximum_spread" 'BEGIN {
+            split(values, channel, " ")
+            minimum = maximum = channel[1]
+            for (i = 2; i <= 3; i += 1) {
+                if (channel[i] < minimum) minimum = channel[i]
+                if (channel[i] > maximum) maximum = channel[i]
+            }
+            if (maximum - minimum > maximum_spread) {
+                printf "%s: channel spread %.6f exceeds %.6f\n", label, \
+                    maximum - minimum, maximum_spread > "/dev/stderr"
+                exit 1
+            }
+        }'
+}
+
 gray_png=$test_dir/gray-paper.png
 bright_png=$test_dir/bright-paper.png
+blue_png=$test_dir/blue-paper.png
 source_pdf=$test_dir/source.pdf
 output_pdf=$test_dir/cleaned.pdf
+blue_source_pdf=$test_dir/blue-source.pdf
+blue_output_pdf=$test_dir/blue-cleaned.pdf
 
 for fixture in "$gray_png:#e3e3e3" "$bright_png:#f1f1f1"; do
     destination=${fixture%%:*}
@@ -64,8 +96,15 @@ for fixture in "$gray_png:#e3e3e3" "$bright_png:#f1f1f1"; do
         -draw 'line 100,500 500,500' "$destination"
 done
 
+magick -size 600x800 gradient:'#d5dce5-#e8edf2' -rotate 90 \
+    -resize '600x800!' -units PixelsPerInch -density 100 \
+    -fill '#555b62' -draw 'rectangle 100,150 500,200' \
+    -fill '#a02040' -draw 'rectangle 100,520 250,620' "$blue_png"
+
 magick -units PixelsPerInch -density 100 "$gray_png" "$bright_png" \
     -compress JPEG "$source_pdf"
+magick -units PixelsPerInch -density 100 "$blue_png" \
+    -compress JPEG "$blue_source_pdf"
 
 # Independently verify that the assembled fixture is a two-page image-only PDF
 # and that PDF encoding retained the intended page tones and faint mark.
@@ -89,6 +128,24 @@ source_faint_mark=$(region_mean "$test_dir/source-render-1.png" \
 assert_between 'source gray-paper background' "$source_gray_background" 0.87 0.91
 assert_between 'source bright-paper background' "$source_bright_background" 0.93 0.97
 assert_between 'source faint mark' "$source_faint_mark" 0.60 0.72
+
+# Verify independently that the color fixture reaches the intended PDF path
+# and retains a measurable blue cast after PDF encoding.
+[[ $(pdfinfo "$blue_source_pdf" | awk -F: \
+    '$1 == "Pages" { sub(/^[[:space:]]+/, "", $2); print $2; exit }') -eq 1 ]]
+pdfimages -list "$blue_source_pdf" | awk '
+    $1 == 1 && $3 == "image" && $6 != "gray" { images += 1 }
+    END { exit !(images == 1) }'
+pdftocairo -png -r 100 -singlefile "$blue_source_pdf" \
+    "$test_dir/blue-source-render"
+awk -v values="$(region_rgb "$test_dir/blue-source-render.png" \
+    '120x100+300+350')" 'BEGIN {
+        split(values, channel, " ")
+        if (channel[3] - channel[1] < 0.03) {
+            print "PDF blue fixture does not contain the intended cast" > "/dev/stderr"
+            exit 1
+        }
+    }'
 
 "$cli" --input "$source_pdf" --output "$output_pdf" \
     --clean-scan standard --grayscale --preserve-metadata none >/dev/null
@@ -136,5 +193,35 @@ for page in 1 2; do
             }
         }'
 done
+
+"$cli" --input "$blue_source_pdf" --output "$blue_output_pdf" \
+    --clean-scan standard --preserve-metadata none >/dev/null
+
+[[ -s $blue_output_pdf ]]
+gs -q -dBATCH -dNOPAUSE -sDEVICE=nullpage -f "$blue_output_pdf"
+[[ $(pdfinfo "$blue_output_pdf" | awk -F: \
+    '$1 == "Pages" { sub(/^[[:space:]]+/, "", $2); print $2; exit }') -eq 1 ]]
+pdfimages -list "$blue_output_pdf" | awk '
+    $1 == 1 && $3 == "image" && $6 != "gray" { images += 1 }
+    END { exit !(images == 1) }'
+pdftocairo -png -r 100 -singlefile "$blue_output_pdf" \
+    "$test_dir/blue-output-render"
+[[ $(magick identify -quiet -format '%wx%h' \
+    "$test_dir/blue-output-render.png") == 600x800 ]]
+
+assert_channel_spread_at_most 'PDF blue-paper neutrality' \
+    "$(region_rgb "$test_dir/blue-output-render.png" '120x100+300+350')" 0.02
+assert_between 'PDF medium-ink darkening' \
+    "$(region_mean "$test_dir/blue-output-render.png" '300x30+150+160')" \
+    0.10 0.35
+awk -v values="$(region_rgb "$test_dir/blue-output-render.png" \
+    '100x60+125+540')" 'BEGIN {
+        split(values, channel, " ")
+        if (channel[1] - channel[2] < 0.20 || \
+            channel[1] - channel[3] < 0.20) {
+            print "PDF colored mark lost its red dominance" > "/dev/stderr"
+            exit 1
+        }
+    }'
 
 printf '%s\n' 'PDF scan tonal tests passed'

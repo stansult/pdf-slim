@@ -15,23 +15,32 @@ Run `scan-clean.sh --help` for the authoritative option list.
 nonrecursive directory. It is not repeatable, and directory traversal is not
 recursive.
 
-Each image is analyzed independently before cleanup. The dominant paper
-brightness selects a bounded white point, allowing photographed gray paper to
-approach white without further lifting paper that is already white. Cleanup
-strength retains progressively stronger black points and guarded white-point
-ranges:
+Each image is analyzed independently before cleanup. The dominant paper color
+drives a bounded white balance, with per-channel gains limited to 0.95–1.05.
+This neutralizes modest blue, yellow, or other casts without allowing an
+unusual background estimate to cause an extreme color shift. Already-neutral
+paper is not white-balanced. A luminance mask then neutralizes only bright
+paper highlights, blending from no neutralization at 70% brightness to full
+neutralization at 95%. Darker colored handwriting and annotations remain
+outside that mask.
 
-| Mode | Black point | Adaptive white point |
-| --- | ---: | ---: |
-| `gentle` | 8% | estimated paper + 2%, limited to 90%–96% |
-| `standard` | 12% | estimated paper, limited to 88%–94% |
-| `strong` | 16% | estimated paper − 2%, limited to 86%–92% |
+The dominant paper brightness also selects a bounded white point, allowing
+photographed gray paper to approach white without further lifting paper that
+is already white. Cleanup modes combine progressively stronger black points,
+guarded white-point ranges, and luminance-only midtone darkening:
+
+| Mode | Black point | Adaptive white point | Midtone gamma |
+| --- | ---: | ---: | ---: |
+| `gentle` | 8% | estimated paper + 2%, limited to 90%–96% | 0.85 |
+| `standard` | 12% | estimated paper, limited to 88%–94% | 0.70 |
+| `strong` | 16% | estimated paper − 2%, limited to 86%–92% | 0.60 |
 
 For PDF input, `pdf-slim.sh` applies the same analysis to every rendered page,
 so differently exposed pages can converge on a more consistent paper tone.
 The bounds prevent a dark dominant region from producing an extreme white
-point. Faint marks are retained as tonal detail rather than thresholded to
-strict black and white.
+point. Midtone adjustment is applied only to luminance, so color is retained.
+Faint marks remain tonal detail rather than being thresholded to strict black
+and white.
 
 With one selected image and no output option, the default `standard` mode
 creates `NAME-standard.EXT` beside the source:
@@ -124,5 +133,8 @@ published atomically. The command verifies that source bytes remain unchanged
 before publication, tolerating filesystem metadata activity only after a
 matching SHA-256 check. Batches continue after individual failures and return
 status `1` if any conversion fails.
+
+Possible exit codes are `0` for success, `1` when one or more cleanups fail,
+and `2` for an invalid or unsafe request.
 
 See [Safety and replacement history](safety.md) for shared safety principles.

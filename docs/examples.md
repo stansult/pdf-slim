@@ -99,12 +99,19 @@ pdf-slim.sh --input archived-statement.pdf --output-dir ./slimmed \
 
 ## Scan cleanup
 
-Clean an image-only PDF scan with the default `standard` strength:
+Clean an image-backed PDF scan with the default `standard` strength:
 
 ```bash
 pdf-slim.sh --input employment-form-scan.pdf \
   --output employment-form-cleaned.pdf --clean-scan
 ```
+
+If an otherwise eligible PDF contains searchable text or visible vector
+content, an interactive run asks whether to clean and rasterize it, preserve
+that content by continuing without scan cleanup, or quit. The default is Quit.
+Choosing Preserve still applies the resolved PDF quality, grayscale, and
+metadata settings. With no explicit quality option, that includes the normal
+scan-clean default of source resolution and JPEG `QFactor 0.10`.
 
 Clean a raster image and create a PDF:
 

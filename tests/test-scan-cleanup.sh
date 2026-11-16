@@ -42,12 +42,16 @@ for cleanup_mode in gentle standard strong; do
             --output "$output_pdf" --clean-scan "$cleanup_mode" \
             --preserve-metadata none >"$test_dir/standard.out" \
             2>"$test_dir/standard.err"
-        grep -q 'verbose: inspecting PDF for safe image-only cleanup:' \
+        grep -q 'verbose: inspecting PDF for safe image-backed cleanup:' \
+            "$test_dir/standard.err"
+        grep -q 'verbose: scan inspection accepted 1 page:' \
+            "$test_dir/standard.err"
+        grep -q 'verbose: scan cleanup workers: 1 (automatic for 1 page)' \
             "$test_dir/standard.err"
         grep -q 'verbose: rendering page 1 of 1:' "$test_dir/standard.err"
         grep -q 'verbose: cleaning page 1 of 1 (standard):' \
             "$test_dir/standard.err"
-        grep -q 'verbose: assembling 1 cleaned page(s):' \
+        grep -q 'verbose: assembling 1 cleaned page:' \
             "$test_dir/standard.err"
     else
         "$project_dir/pdf-slim.sh" --input "$scan_pdf" \
@@ -254,13 +258,13 @@ fi
 grep -Fq 'Summary: 2 files — 1 succeeded, 1 failed' "$test_dir/batch.log"
 grep -Fxq 'Failures:' "$test_dir/batch.log"
 grep -Fxq "  $vector_pdf" "$test_dir/batch.log"
-grep -Fxq '    scan cleanup refuses PDFs containing searchable text' \
+grep -Fxq '    scan cleanup requires exactly one image on every page (page 1)' \
     "$test_dir/batch.log"
 awk '
     /created: .*\/scan\.pdf$/ { after_success = 1; next }
     after_success && $0 == "" { after_success = 0; separator = 1; next }
     separator && /processing: .*\/vector\.pdf$/ { separated_files = 1 }
-    /error: scan cleanup refuses PDFs containing searchable text:/ {
+    /error: scan cleanup requires exactly one image on every page/ {
         after_failure = 1
         next
     }

@@ -10,7 +10,7 @@
 Use `pdf-slim.sh` when output should be PDF. Use `scan-clean.sh` when output
 should remain an image.
 
-Current versions: `pdf-slim.sh` 1.5.0 and `scan-clean.sh` 1.1.0.
+Current versions: `pdf-slim.sh` 1.6.0 and `scan-clean.sh` 1.2.0.
 
 ## Quick start
 
@@ -32,7 +32,7 @@ Replace an original only when the validated result is strictly smaller:
 pdf-slim.sh --input research-paper.pdf --replace
 ```
 
-Clean an image-only PDF scan using the default `standard` cleanup strength:
+Clean an image-backed PDF scan using the default `standard` cleanup strength:
 
 ```bash
 pdf-slim.sh --input employment-form-scan.pdf \
@@ -75,13 +75,19 @@ See [additional PDF examples](docs/examples.md) and the
   reasons.
 - Records successful replacement outcomes and skips only unchanged files with
   matching identity and processing policy.
-- Provides gentle, standard, and strong cleanup for safely detected image-only
-  scans, with bounded per-page paper-brightness normalization, while preserving
-  visible page geometry, resolution, and color by default.
+- Provides gentle, standard, and strong cleanup for safely detected image-backed
+  scans, with bounded per-page paper-color neutralization and midtone ink
+  darkening, while preserving visible page geometry, resolution, and color by
+  default.
+- When an otherwise eligible image-backed PDF contains searchable text or
+  visible vector content, interactive runs let the user rasterize and clean,
+  preserve that content by continuing without scan cleanup, or quit. The
+  preserve choice still applies every other selected conversion option.
 - Delegates page-pixel cleanup to `scan-clean.sh` and automatically processes
   up to five PDF pages concurrently; `--jobs N` provides an explicit override.
-- Privately records anonymous PDF scan-clean performance metrics for future
-  concurrency tuning; verbose mode prints a one-line summary.
+- Privately records anonymous PDF scan-clean attempt metrics—except when the
+  user chooses Preserve or Quit—for future concurrency tuning; verbose mode
+  prints a one-line summary.
 - Accepts raster scans directly and produces PDF output through the same
   cleanup and PDF-quality pipeline.
 
@@ -89,8 +95,9 @@ See [additional PDF examples](docs/examples.md) and the
 
 - Cleans supported single-frame raster images directly.
 - Provides gentle, standard, and strong cleanup plus `--all-modes` comparison.
-- Estimates each image's paper brightness independently so gray paper can
-  approach white without applying extra whitening to already-white paper.
+- Estimates each image's paper brightness and color independently so gray or
+  color-cast paper can approach neutral white without applying extra correction
+  to already-neutral paper.
 - Supports exact output, automatic collision-safe naming, and nonrecursive
   directory or quoted-glob batches.
 - Converts raster formats according to the requested output extension.
@@ -142,8 +149,9 @@ Do not combine `--quality` with `--max-dpi` or `--jpeg-recompress`. See
 Scan cleanup options:
 
 ```text
---clean-scan [MODE]  Improve an image-only scan using gentle, standard, or
-                     strong adaptive paper whitening and contrast cleanup
+--clean-scan [MODE]  Improve an image-backed scan using gentle, standard, or
+                     strong adaptive paper neutralization and text-contrast
+                     cleanup
                      (default mode: standard)
 --jobs N             Clean up to N PDF pages concurrently, 1-11
                      (default: automatic, up to 5; requires --clean-scan)
@@ -171,7 +179,7 @@ Other options:
 
 Run `pdf-slim.sh --help` for the authoritative command summary. Possible exit
 codes are `0` for success, `1` when one or more conversions fail, and `2` for
-an invalid or unsafe request.
+an invalid/unsafe request or a user-selected Quit.
 
 ## Safety summary
 
@@ -181,9 +189,12 @@ unchanged. Exact-file and output-directory modes do not silently overwrite
 destinations. Temporary candidates are removed after success, failure, timeout,
 or interruption.
 
-Scan cleanup first verifies that flattening will not discard detectable text,
-forms, JavaScript, attachments, links, named destinations, visible vector
-content, or unsupported page-image structures. Refused input remains untouched.
+Scan cleanup first verifies page-image structure and detects content that
+flattening could discard. Forms, JavaScript, attachments, links, named
+destinations, and unsupported page-image structures are refused. Searchable
+text or visible vector content receives an explicit interactive clean,
+preserve, or Quit choice; without a terminal, the input is refused safely.
+Refused or canceled input remains untouched.
 
 Both commands distinguish real source changes from metadata-only filesystem
 activity by confirming identical bytes with SHA-256 when necessary. Metadata

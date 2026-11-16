@@ -134,13 +134,22 @@ printf 'source\n' >"$source_pdf"
 scan_directory=$test_dir/scan
 mkdir "$scan_directory"
 reset_state
+VERBOSE=1
 PARALLEL_STATE=$test_dir/state \
 PARALLEL_ASSEMBLY_ARGS=$test_dir/assembly.args \
 clean_scan_pdf "$source_pdf" "$test_dir/output.pdf" "$scan_directory" \
     standard "$test_dir/bin/fake-timeout" 1m unused-gs \
     "$test_dir/bin/fake-magick" unused-pdfinfo unused-pdfimages \
     unused-pdftotext unused-pdfdetach "$test_dir/bin/fake-render" \
-    "$test_dir/bin/fake-clean" 2
+    "$test_dir/bin/fake-clean" 2 >"$test_dir/explicit.out" \
+    2>"$test_dir/explicit.err"
+VERBOSE=0
+
+grep -q 'verbose: scan inspection accepted 4 pages:' \
+    "$test_dir/explicit.err"
+grep -q 'verbose: scan cleanup workers: 2 (explicit for 4 pages)' \
+    "$test_dir/explicit.err"
+grep -q 'verbose: assembling 4 cleaned pages:' "$test_dir/explicit.err"
 
 [[ $(cat "$test_dir/state.maximum") -eq 2 ]]
 [[ -s $test_dir/output.pdf ]]
@@ -156,13 +165,23 @@ mkdir "$automatic_directory"
 reset_state
 METRICS_ACTIVE=1
 METRIC_PAGE_TIMES=()
+VERBOSE=1
 PARALLEL_STATE=$test_dir/state \
 PARALLEL_ASSEMBLY_ARGS=$test_dir/assembly.args PARALLEL_PAGE_COUNT=7 \
 clean_scan_pdf "$source_pdf" "$test_dir/automatic.pdf" \
     "$automatic_directory" standard "$test_dir/bin/fake-timeout" 1m \
     unused-gs "$test_dir/bin/fake-magick" unused-pdfinfo \
     unused-pdfimages unused-pdftotext unused-pdfdetach \
-    "$test_dir/bin/fake-render" "$test_dir/bin/fake-clean" auto
+    "$test_dir/bin/fake-render" "$test_dir/bin/fake-clean" auto \
+    >"$test_dir/automatic.out" 2>"$test_dir/automatic.err"
+VERBOSE=0
+: "$VERBOSE"
+
+grep -q 'verbose: scan inspection accepted 7 pages:' \
+    "$test_dir/automatic.err"
+grep -q 'verbose: scan cleanup workers: 5 (automatic for 7 pages)' \
+    "$test_dir/automatic.err"
+grep -q 'verbose: assembling 7 cleaned pages:' "$test_dir/automatic.err"
 
 [[ $(cat "$test_dir/state.maximum") -eq 5 ]]
 [[ -s $test_dir/automatic.pdf ]]
