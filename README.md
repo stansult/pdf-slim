@@ -10,7 +10,7 @@
 Use `pdf-slim.sh` when output should be PDF. Use `scan-clean.sh` when output
 should remain an image.
 
-Current versions: `pdf-slim.sh` 1.6.1 and `scan-clean.sh` 1.2.1.
+Current versions: `pdf-slim.sh` 1.6.2 and `scan-clean.sh` 1.2.2.
 
 ## Quick start
 
@@ -69,7 +69,8 @@ See [additional PDF examples](docs/examples.md) and the
 - Preserves paths relative to supplied directories and refuses destination
   collisions or existing output files.
 - Supports dry-run planning, configurable quality, grayscale conversion,
-  metadata policies, per-file timeouts, and verbose diagnostics.
+  metadata policies, per-file timeouts, and timestamped verbose diagnostics
+  without repetitive labels; errors and warnings remain explicitly identified.
 - Shows `processing N of TOTAL` and separates per-file output in multi-file
   conversion runs, then finishes with total, succeeded, failed, and applicable
   skipped counts plus concise failure reasons.
@@ -100,6 +101,8 @@ See [additional PDF examples](docs/examples.md) and the
   to already-neutral paper.
 - Supports exact output, automatic collision-safe naming, and nonrecursive
   directory or quoted-glob batches.
+- Provides timestamped verbose diagnostics without repetitive labels while
+  keeping errors and warnings explicitly identified.
 - Converts raster formats according to the requested output extension.
 - Preserves supported metadata and transparency, with explicit controls for
   metadata stripping, JPEG background, and JPEG quality.

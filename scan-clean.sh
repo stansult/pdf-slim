@@ -6,7 +6,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.2.1'
+VERSION='1.2.2'
 DEFAULT_TIMEOUT='1h'
 DEFAULT_MODE='standard'
 DEFAULT_JPEG_QUALITY='95'
@@ -65,9 +65,9 @@ Important:
   The default cleanup mode is standard. Directory processing is nonrecursive.
   Symlinks, vector documents, animations, and multi-frame images are skipped
   or refused.
-  Primary operational messages use local timestamps; continuation lines remain
-  unprefixed. Add --verbose for resolved settings and processing stages; help
-  and version remain undecorated.
+  Primary operational and verbose messages use local timestamps. Verbose detail
+  omits repeated program labels; errors and warnings retain them. Continuation
+  lines remain unprefixed; help and version remain undecorated.
 
 Full documentation:
   https://github.com/stansult/pdf-slim
@@ -180,7 +180,7 @@ warn() {
 
 verbose() {
     (( VERBOSE )) || return 0
-    operational_message stderr "$PROGRAM: verbose: $*"
+    operational_message stderr "$*"
 }
 
 find_command() {

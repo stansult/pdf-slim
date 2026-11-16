@@ -42,16 +42,16 @@ for cleanup_mode in gentle standard strong; do
             --output "$output_pdf" --clean-scan "$cleanup_mode" \
             --preserve-metadata none >"$test_dir/standard.out" \
             2>"$test_dir/standard.err"
-        grep -q 'verbose: inspecting PDF for safe image-backed cleanup:' \
+        grep -q 'inspecting PDF for safe image-backed cleanup:' \
             "$test_dir/standard.err"
-        grep -q 'verbose: scan inspection accepted 1 page:' \
+        grep -q 'scan inspection accepted 1 page:' \
             "$test_dir/standard.err"
-        grep -q 'verbose: scan cleanup workers: 1 (automatic for 1 page)' \
+        grep -q 'scan cleanup workers: 1 (automatic for 1 page)' \
             "$test_dir/standard.err"
-        grep -q 'verbose: rendering page 1 of 1:' "$test_dir/standard.err"
-        grep -q 'verbose: cleaning page 1 of 1 (standard):' \
+        grep -q 'rendering page 1 of 1:' "$test_dir/standard.err"
+        grep -q 'cleaning page 1 of 1 (standard):' \
             "$test_dir/standard.err"
-        grep -q 'verbose: assembling 1 cleaned page:' \
+        grep -q 'assembling 1 cleaned page:' \
             "$test_dir/standard.err"
     else
         "$project_dir/pdf-slim.sh" --input "$scan_pdf" \
@@ -88,7 +88,7 @@ if grep -Fq -- "$scan_pdf" "$metrics_file"; then
     printf '%s\n' 'metrics unexpectedly contain the scan source path' >&2
     exit 1
 fi
-grep -q 'verbose: metrics: success pages=1 workers=1(auto)' \
+grep -q 'metrics: success pages=1 workers=1(auto)' \
     "$test_dir/standard.err"
 
 alpha_png=$test_dir/alpha-scan.png
@@ -283,15 +283,11 @@ fi
 grep -Fq 'Summary: 2 files — 1 succeeded, 1 failed' \
     "$test_dir/batch-verbose.log"
 awk '
-    /verbose: timeout:/ { after_settings = 1; next }
+    /timeout:/ { after_settings = 1; next }
     after_settings && $0 == "" { after_settings = 0; separator = 1; next }
     separator && /processing 1 of 2:/ { found = 1 }
     END { exit !found }
 ' "$test_dir/batch-verbose.log"
-if grep -q 'verbose: processing [0-9][0-9]* of [0-9][0-9]*:' \
-    "$test_dir/batch-verbose.log"; then
-    printf '%s\n' 'verbose batch unexpectedly duplicated progress output' >&2
-    exit 1
-fi
+[[ $(grep -c 'processing [12] of 2:' "$test_dir/batch-verbose.log") -eq 2 ]]
 
 printf '%s\n' 'scan cleanup tests passed'

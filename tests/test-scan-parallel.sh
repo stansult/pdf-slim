@@ -145,11 +145,11 @@ clean_scan_pdf "$source_pdf" "$test_dir/output.pdf" "$scan_directory" \
     2>"$test_dir/explicit.err"
 VERBOSE=0
 
-grep -q 'verbose: scan inspection accepted 4 pages:' \
+grep -q 'scan inspection accepted 4 pages:' \
     "$test_dir/explicit.err"
-grep -q 'verbose: scan cleanup workers: 2 (explicit for 4 pages)' \
+grep -q 'scan cleanup workers: 2 (explicit for 4 pages)' \
     "$test_dir/explicit.err"
-grep -q 'verbose: assembling 4 cleaned pages:' "$test_dir/explicit.err"
+grep -q 'assembling 4 cleaned pages:' "$test_dir/explicit.err"
 
 [[ $(cat "$test_dir/state.maximum") -eq 2 ]]
 [[ -s $test_dir/output.pdf ]]
@@ -177,11 +177,11 @@ clean_scan_pdf "$source_pdf" "$test_dir/automatic.pdf" \
 VERBOSE=0
 : "$VERBOSE"
 
-grep -q 'verbose: scan inspection accepted 7 pages:' \
+grep -q 'scan inspection accepted 7 pages:' \
     "$test_dir/automatic.err"
-grep -q 'verbose: scan cleanup workers: 5 (automatic for 7 pages)' \
+grep -q 'scan cleanup workers: 5 (automatic for 7 pages)' \
     "$test_dir/automatic.err"
-grep -q 'verbose: assembling 7 cleaned pages:' "$test_dir/automatic.err"
+grep -q 'assembling 7 cleaned pages:' "$test_dir/automatic.err"
 
 [[ $(cat "$test_dir/state.maximum") -eq 5 ]]
 [[ -s $test_dir/automatic.pdf ]]

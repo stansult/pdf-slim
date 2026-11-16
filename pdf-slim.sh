@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.6.1'
+VERSION='1.6.2'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -127,9 +127,10 @@ Important:
   When an otherwise eligible scan contains text or visible vector content,
   interactive runs offer to clean and rasterize, preserve text without scan
   cleanup, or quit. Non-interactive runs refuse the affected file safely.
-  Primary operational messages are prefixed with local [HH:MM:SS]; continuation
-  lines remain unprefixed. The local date is printed before the first message
-  and again after the last only if it changed.
+  Primary operational and verbose messages are prefixed with local [HH:MM:SS].
+  Verbose detail omits repeated program labels; errors and warnings retain them.
+  Continuation lines remain unprefixed. The local date is printed before the
+  first message and again after the last only if it changed.
 
 Full documentation:
   https://github.com/stansult/pdf-slim
@@ -302,7 +303,7 @@ hint() {
 
 verbose() {
     (( VERBOSE )) || return 0
-    operational_message stderr "$PROGRAM: verbose: $*"
+    operational_message stderr "$*"
 }
 
 begin_batch_file_block() {

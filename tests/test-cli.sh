@@ -46,7 +46,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.1' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.2' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -322,13 +322,17 @@ verbose_output=$test_dir/verbose-output.pdf
 PATH="$test_path" "$cli" --dry-run -v -i "$test_dir/input/one.pdf" \
     --clean-scan --jobs 2 -o "$verbose_output" \
     >"$test_dir/verbose.out" 2>"$test_dir/verbose.err"
-grep -q 'verbose: discovered 1 input(s)' "$test_dir/verbose.err"
-grep -q 'verbose: scan cleanup mode: standard (default)' \
+grep -q 'discovered 1 input(s)' "$test_dir/verbose.err"
+grep -q 'scan cleanup mode: standard (default)' \
     "$test_dir/verbose.err"
-grep -q 'verbose: scan cleanup workers requested: 2 (explicit)' \
+grep -q 'scan cleanup workers requested: 2 (explicit)' \
     "$test_dir/verbose.err"
-grep -q 'verbose: PDF quality: scan-clean defaults' "$test_dir/verbose.err"
-grep -q 'verbose: metadata: standard (default)' "$test_dir/verbose.err"
+grep -q 'PDF quality: scan-clean defaults' "$test_dir/verbose.err"
+grep -q 'metadata: standard (default)' "$test_dir/verbose.err"
+if grep -q 'pdf-slim\.sh: verbose:' "$test_dir/verbose.err"; then
+    printf '%s\n' 'verbose output unexpectedly repeated its program label' >&2
+    exit 1
+fi
 grep -q 'would clean scan (standard):' "$test_dir/verbose.out"
 [[ ! -e $verbose_output ]]
 PATH="$test_path" "$cli" --dry-run --replace \

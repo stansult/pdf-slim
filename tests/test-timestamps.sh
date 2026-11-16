@@ -86,11 +86,13 @@ cmp "$test_dir/multiline.expected" "$test_dir/multiline.err"
 reset_operational_output
 {
     error 'invalid request'
+    warn 'careful now'
     operational_continuation stderr $'first detail\nsecond detail'
 } 2>"$test_dir/continuation.err"
 printf '%s\n' \
     '[2026-09-01]' \
     '[00:01:12] test-timestamps.sh: error: invalid request' \
+    '[00:01:12] test-timestamps.sh: warning: careful now' \
     'first detail' \
     'second detail' >"$test_dir/continuation.expected"
 cmp "$test_dir/continuation.expected" "$test_dir/continuation.err"
@@ -102,7 +104,7 @@ VERBOSE=1
 verbose 'quality: preserve (default)' 2>"$test_dir/verbose.err"
 printf '%s\n' \
     '[2026-09-01]' \
-    '[00:01:12] test-timestamps.sh: verbose: quality: preserve (default)' \
+    '[00:01:12] quality: preserve (default)' \
     >"$test_dir/verbose.expected"
 cmp "$test_dir/verbose.expected" "$test_dir/verbose.err"
 

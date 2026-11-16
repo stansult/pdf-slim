@@ -58,7 +58,7 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-The current `pdf-slim.sh` 1.6.1 implementation provides safe
+The current `pdf-slim.sh` 1.6.2 implementation provides safe
 traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
@@ -70,7 +70,7 @@ concurrency, timing, size, machine-capacity, and outcome metrics for future
 policy tuning; normal output remains unchanged and verbose mode reports a
 one-line summary.
 
-`scan-clean.sh` 1.2.1 implements adaptive gentle, standard,
+`scan-clean.sh` 1.2.2 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
 glob, or nonrecursive directory; supports exact, automatic, and output-directory
 publication; preserves image metadata and transparency where supported; and
@@ -244,7 +244,9 @@ The user has approved these decisions:
     unprefixed. Leave help, version, and blank separator lines undecorated.
 15. Support `-v` / `--verbose`. Send resolved settings, major
     processing stages, size comparisons, and replacement-log decisions to
-    standard error without changing normal output or safety behavior.
+    standard error without changing normal output or safety behavior. Timestamp
+    verbose detail directly without repeating the program name or `verbose:`;
+    errors and warnings retain their program-name and severity labels.
 16. Treat device, inode, size, or modification-time changes during conversion
     as source changes. When only `ctime` changes, use a SHA-256 fingerprint to
     distinguish cloud/filesystem metadata activity from changed bytes. Continue

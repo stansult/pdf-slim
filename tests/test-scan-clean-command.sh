@@ -36,7 +36,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $("$cli" --version) == 'scan-clean.sh 1.2.1' ]]
+[[ $("$cli" --version) == 'scan-clean.sh 1.2.2' ]]
 
 if "$cli" >"$test_dir/no-input.out" 2>"$test_dir/no-input.err"; then
     printf '%s\n' 'expected missing input to fail' >&2
@@ -85,11 +85,11 @@ grep -q "created: $default_output" "$test_dir/default.out"
 "$cli" -v -i "$test_dir/input/scan.jpg" \
     -o "$test_dir/verbose-stage.jpg" \
     >"$test_dir/verbose-stage.out" 2>"$test_dir/verbose-stage.err"
-grep -q 'verbose: inspecting document background:' \
+grep -q 'inspecting document background:' \
     "$test_dir/verbose-stage.err"
-grep -q 'verbose: applying standard cleanup:' "$test_dir/verbose-stage.err"
-grep -q 'verbose: validating cleaned image:' "$test_dir/verbose-stage.err"
-grep -q 'verbose: publishing output atomically:' \
+grep -q 'applying standard cleanup:' "$test_dir/verbose-stage.err"
+grep -q 'validating cleaned image:' "$test_dir/verbose-stage.err"
+grep -q 'publishing output atomically:' \
     "$test_dir/verbose-stage.err"
 grep -q 'created:' "$test_dir/verbose-stage.out"
 
@@ -140,11 +140,15 @@ grep -q 'would create:' "$test_dir/glob.out"
 verbose_output=$test_dir/verbose.jpg
 "$cli" -v -i "$test_dir/input/scan.jpg" -o "$verbose_output" --dry-run \
     >"$test_dir/verbose.out" 2>"$test_dir/verbose.err"
-grep -q 'verbose: selected 1 image(s)' "$test_dir/verbose.err"
-grep -q 'verbose: cleanup mode: standard (default)' "$test_dir/verbose.err"
-grep -q 'verbose: JPEG quality: 95' "$test_dir/verbose.err"
-grep -q 'verbose: metadata: preserve supported metadata' \
+grep -q 'selected 1 image(s)' "$test_dir/verbose.err"
+grep -q 'cleanup mode: standard (default)' "$test_dir/verbose.err"
+grep -q 'JPEG quality: 95' "$test_dir/verbose.err"
+grep -q 'metadata: preserve supported metadata' \
     "$test_dir/verbose.err"
+if grep -q 'scan-clean\.sh: verbose:' "$test_dir/verbose.err"; then
+    printf '%s\n' 'verbose output unexpectedly repeated its program label' >&2
+    exit 1
+fi
 grep -q 'would create:' "$test_dir/verbose.out"
 [[ ! -e $verbose_output ]]
 
