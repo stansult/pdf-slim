@@ -13,6 +13,16 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+assert_no_terminal_control() {
+    local path=$1
+    if LC_ALL=C grep -q "$(printf '\033')" "$path" || \
+        LC_ALL=C grep -q "$(printf '\r')" "$path"; then
+        printf 'unexpected terminal control code in redirected output: %s\n' \
+            "$path" >&2
+        exit 1
+    fi
+}
+
 mkdir -p "$test_dir/input/sub"
 
 "$cli" --help >"$test_dir/help-long.out"
@@ -28,6 +38,10 @@ grep -q -- 'Paper brightness and color are estimated independently' \
 grep -q -- 'improves photographed and scanned document images' \
     "$test_dir/help-long.out"
 grep -q -- 'For PDF output, use pdf-slim.sh.' "$test_dir/help-long.out"
+grep -q -- 'Interactive' "$test_dir/help-long.out"
+grep -q -- 'non-verbose runs animate the current stage' "$test_dir/help-long.out"
+grep -q -- 'Redirected' "$test_dir/help-long.out"
+grep -q -- 'output is never animated' "$test_dir/help-long.out"
 grep -q -- '-i scan.png -o scan-cleaned.jpg' "$test_dir/help-long.out"
 grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
 grep -q -- '^Possible exit codes:$' "$test_dir/help-long.out"
@@ -36,7 +50,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $("$cli" --version) == 'scan-clean.sh 1.2.2' ]]
+[[ $("$cli" --version) == 'scan-clean.sh 1.2.3' ]]
 
 if "$cli" >"$test_dir/no-input.out" 2>"$test_dir/no-input.err"; then
     printf '%s\n' 'expected missing input to fail' >&2
@@ -68,9 +82,13 @@ awk '/For the current directory:/ { seen = 1; next }
 printf '%s\n' 'not an image' >"$test_dir/input/note.txt"
 ln -s "$test_dir/input/scan.jpg" "$test_dir/input/link.jpg"
 
-"$cli" -i "$test_dir/input/scan.jpg" >"$test_dir/default.out"
+"$cli" -i "$test_dir/input/scan.jpg" \
+    >"$test_dir/default.out" 2>"$test_dir/default.err"
 default_output=$test_dir/input/scan-standard.jpg
 [[ -s $default_output ]]
+[[ ! -s $test_dir/default.err ]]
+assert_no_terminal_control "$test_dir/default.out"
+assert_no_terminal_control "$test_dir/default.err"
 grep -q "created: $default_output" "$test_dir/default.out"
 [[ $("$real_magick" identify -quiet -format '%wx%h' "$default_output") == 80x60 ]]
 [[ $("$real_magick" identify -quiet -format '%x' "$default_output") == 300 ]]
@@ -92,6 +110,8 @@ grep -q 'validating cleaned image:' "$test_dir/verbose-stage.err"
 grep -q 'publishing output atomically:' \
     "$test_dir/verbose-stage.err"
 grep -q 'created:' "$test_dir/verbose-stage.out"
+assert_no_terminal_control "$test_dir/verbose-stage.out"
+assert_no_terminal_control "$test_dir/verbose-stage.err"
 
 "$cli" -i "$test_dir/input/scan.jpg" >/dev/null
 [[ -s $test_dir/input/scan-2-standard.jpg ]]

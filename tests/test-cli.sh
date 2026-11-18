@@ -12,6 +12,16 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+assert_no_terminal_control() {
+    local path=$1
+    if LC_ALL=C grep -q "$(printf '\033')" "$path" || \
+        LC_ALL=C grep -q "$(printf '\r')" "$path"; then
+        printf 'unexpected terminal control code in redirected output: %s\n' \
+            "$path" >&2
+        exit 1
+    fi
+}
+
 mkdir -p "$test_dir/cli" "$test_dir/bin" "$test_dir/input/sub" \
     "$test_dir/other" "$test_dir/empty" "$test_dir/glob-input"
 cp "$project_dir/pdf-slim.sh" "$test_dir/cli/pdf-slim.sh"
@@ -41,6 +51,9 @@ grep -q -- 'For image output, use scan-clean.sh.' "$test_dir/help-long.out"
 grep -q -- 'NAME-recovered\[-N\]\.pdf' "$test_dir/help-long.out"
 grep -q -- 'Other output modes save the requested output but still return status 1' \
     "$test_dir/help-long.out"
+grep -q -- 'Interactive non-verbose runs animate the current foreground stage' \
+    "$test_dir/help-long.out"
+grep -q -- 'Redirected output is never animated' "$test_dir/help-long.out"
 grep -q -- '-i scan.jpg -o scan-cleaned.pdf --clean-scan standard' \
     "$test_dir/help-long.out"
 grep -q -- 'https://github.com/stansult/pdf-slim' "$test_dir/help-long.out"
@@ -49,7 +62,7 @@ if grep -Eq '^\[[0-9]{4}-[0-9]{2}-[0-9]{2}\]$|^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\]' \
     printf '%s\n' 'help output must not be timestamped' >&2
     exit 1
 fi
-[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.3' ]]
+[[ $(PATH="$test_path" "$cli" --version) == 'pdf-slim.sh 1.6.4' ]]
 
 if PATH="$test_path" "$cli" >"$test_dir/no-args.out" 2>"$test_dir/no-args.err"; then
     printf '%s\n' 'expected an invocation without arguments to fail' >&2
@@ -130,8 +143,11 @@ grep -q "quote patterns passed to --input" "$test_dir/unquoted-glob.err"
 exact_output=$test_dir/exact-output.pdf
 FAKE_GS_MODE=success PATH="$test_path" \
     "$cli" -i "$test_dir/input/one.pdf" -o "$exact_output" \
-    >"$test_dir/exact.out"
+    >"$test_dir/exact.out" 2>"$test_dir/exact.err"
 [[ -s $exact_output ]]
+[[ ! -s $test_dir/exact.err ]]
+assert_no_terminal_control "$test_dir/exact.out"
+assert_no_terminal_control "$test_dir/exact.err"
 grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] processing:' \
     "$test_dir/exact.out"
 grep -Eq '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}\] created:' \
@@ -332,6 +348,8 @@ grep -q 'scan cleanup workers requested: 2 (explicit)' \
     "$test_dir/verbose.err"
 grep -q 'PDF quality: scan-clean defaults' "$test_dir/verbose.err"
 grep -q 'metadata: standard (default)' "$test_dir/verbose.err"
+assert_no_terminal_control "$test_dir/verbose.out"
+assert_no_terminal_control "$test_dir/verbose.err"
 if grep -q 'pdf-slim\.sh: verbose:' "$test_dir/verbose.err"; then
     printf '%s\n' 'verbose output unexpectedly repeated its program label' >&2
     exit 1

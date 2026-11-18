@@ -128,6 +128,11 @@ scan-clean.sh --verbose --input phone-photo.jpg \
   --output phone-photo-cleaned.jpg
 ```
 
+In an interactive terminal, a non-verbose run animates its current foreground
+stage. The line adds elapsed time after five seconds; a completed stage reports
+its duration only when it took at least ten seconds. Redirected output and
+verbose diagnostics do not use animation or terminal control codes.
+
 The per-image timeout defaults to one hour. Each result is validated and
 published atomically. The command verifies that source bytes remain unchanged
 before publication, tolerating filesystem metadata activity only after a

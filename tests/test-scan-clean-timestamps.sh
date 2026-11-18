@@ -16,6 +16,9 @@ SCAN_CLEAN_TESTING=1
 # shellcheck source=../scan-clean.sh
 # shellcheck disable=SC1091
 source "$project_dir/scan-clean.sh"
+# shellcheck source=progress-contract.sh
+# shellcheck disable=SC1091
+source "$project_dir/tests/progress-contract.sh"
 
 reset_operational_output() {
     # These globals are consumed by functions in the sourced command.
@@ -111,5 +114,7 @@ cmp "$test_dir/verbose.expected" "$test_dir/verbose.err"
 reset_operational_output
 verbose 'must remain hidden' 2>"$test_dir/nonverbose.err"
 [[ ! -s $test_dir/nonverbose.err ]]
+
+verify_progress_contract "$test_dir" '2026-09-24'
 
 printf '%s\n' 'scan-clean timestamp tests passed'

@@ -14,6 +14,7 @@ for test_script in \
     test-performance-metrics.sh \
     test-timestamps.sh \
     test-scan-clean-timestamps.sh \
+    test-progress-tty.sh \
     test-cli.sh \
     test-real-gs.sh \
     test-scan-inspection.sh \

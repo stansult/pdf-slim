@@ -6,15 +6,25 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.2.2'
+VERSION='1.2.3'
 DEFAULT_TIMEOUT='1h'
 DEFAULT_MODE='standard'
 DEFAULT_JPEG_QUALITY='95'
 DEFAULT_BACKGROUND='white'
+PROGRESS_ELAPSED_THRESHOLD_TENTHS='50'
+PROGRESS_DURATION_THRESHOLD_TENTHS='100'
+PROGRESS_UPDATE_INTERVAL='0.2'
 VERBOSE=0
 OPERATIONAL_OUTPUT_STARTED=0
 OPERATIONAL_START_DATE=''
 OPERATIONAL_LAST_STREAM='stderr'
+PROGRESS_ACTIVE=0
+PROGRESS_LABEL=''
+PROGRESS_START_WALL_TIME=''
+PROGRESS_START_TENTHS=0
+PROGRESS_UPDATER_PID=''
+PROGRESS_CAPTURED_WALL_TIME=''
+PROGRESS_CAPTURED_TENTHS=0
 PAPER_BRIGHTNESS_PERCENT=94
 PAPER_CAST_THRESHOLD=6
 MINIMUM_WHITE_BALANCE_GAIN='0.95'
@@ -66,8 +76,11 @@ Important:
   Symlinks, vector documents, animations, and multi-frame images are skipped
   or refused.
   Primary operational and verbose messages use local timestamps. Verbose detail
-  omits repeated program labels; errors and warnings retain them. Continuation
-  lines remain unprefixed; help and version remain undecorated.
+  omits repeated program labels; errors and warnings retain them. Interactive
+  non-verbose runs animate the current stage; after 5 seconds they show elapsed
+  time, and stages taking at least 10 seconds report their duration. Redirected
+  output is never animated. Continuation lines remain unprefixed; help and
+  version remain undecorated.
 
 Full documentation:
   https://github.com/stansult/pdf-slim
@@ -120,11 +133,135 @@ begin_operational_output() {
     OPERATIONAL_LAST_STREAM=$stream
 }
 
+progress_stderr_is_interactive() {
+    [[ -t 2 ]]
+}
+
+progress_capture_wall_time() {
+    PROGRESS_CAPTURED_WALL_TIME=$(date '+%H:%M:%S') || \
+        PROGRESS_CAPTURED_WALL_TIME='??:??:??'
+}
+
+progress_capture_monotonic_tenths() {
+    local value=''
+
+    if command -v perl >/dev/null 2>&1; then
+        value=$(perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+            -e 'printf "%d\n", clock_gettime(CLOCK_MONOTONIC) * 10' \
+            2>/dev/null) || value=''
+    fi
+    if [[ $value =~ ^[0-9]+$ ]]; then
+        PROGRESS_CAPTURED_TENTHS=$value
+    else
+        PROGRESS_CAPTURED_TENTHS=$((SECONDS * 10))
+    fi
+}
+
+progress_elapsed_suffix() {
+    local elapsed_tenths=$1
+
+    (( elapsed_tenths >= PROGRESS_ELAPSED_THRESHOLD_TENTHS )) || return 0
+    printf ' — elapsed %ss' "$((elapsed_tenths / 10))"
+}
+
+progress_duration_suffix() {
+    local elapsed_tenths=$1
+
+    (( elapsed_tenths >= PROGRESS_DURATION_THRESHOLD_TENTHS )) || return 0
+    printf ' (took %d.%ds)' "$((elapsed_tenths / 10))" \
+        "$((elapsed_tenths % 10))"
+}
+
+progress_spinner_frame() {
+    case $(($1 % 4)) in
+        0) printf '%s' '|' ;;
+        1) printf '%s' '/' ;;
+        2) printf '%s' '-' ;;
+        3) printf '%s' "\\" ;;
+    esac
+}
+
+progress_updater() {
+    local label=$1
+    local start_wall_time=$2
+    local started_seconds=$SECONDS
+    local frame=0 elapsed_tenths suffix spinner
+
+    while true; do
+        sleep "$PROGRESS_UPDATE_INTERVAL" || return 0
+        ((frame += 1))
+        elapsed_tenths=$(((SECONDS - started_seconds) * 10))
+        suffix=$(progress_elapsed_suffix "$elapsed_tenths")
+        spinner=$(progress_spinner_frame "$frame")
+        printf '\r\033[2K[%s] %s %s%s' "$start_wall_time" "$spinner" \
+            "$label" "$suffix" >&2
+    done
+}
+
+progress_launch_updater() {
+    progress_updater "$PROGRESS_LABEL" "$PROGRESS_START_WALL_TIME" &
+    PROGRESS_UPDATER_PID=$!
+}
+
+progress_stop_updater() {
+    if [[ -n $PROGRESS_UPDATER_PID ]]; then
+        kill "$PROGRESS_UPDATER_PID" 2>/dev/null || true
+        wait "$PROGRESS_UPDATER_PID" 2>/dev/null || true
+        PROGRESS_UPDATER_PID=''
+    fi
+}
+
+progress_cancel() {
+    (( PROGRESS_ACTIVE )) || return 0
+    progress_stop_updater
+    printf '\r\033[2K' >&2
+    PROGRESS_ACTIVE=0
+    PROGRESS_LABEL=''
+}
+
+progress_start() {
+    local label=$1
+    local spinner
+
+    progress_cancel
+    (( ! VERBOSE )) || return 0
+    progress_stderr_is_interactive || return 0
+    begin_operational_output stderr
+    progress_capture_wall_time
+    PROGRESS_START_WALL_TIME=$PROGRESS_CAPTURED_WALL_TIME
+    progress_capture_monotonic_tenths
+    PROGRESS_START_TENTHS=$PROGRESS_CAPTURED_TENTHS
+    PROGRESS_LABEL=$label
+    PROGRESS_ACTIVE=1
+    spinner=$(progress_spinner_frame 0)
+    printf '\r\033[2K[%s] %s %s' "$PROGRESS_START_WALL_TIME" "$spinner" \
+        "$PROGRESS_LABEL" >&2
+    progress_launch_updater
+}
+
+progress_finish() {
+    local elapsed_tenths suffix
+
+    (( PROGRESS_ACTIVE )) || return 0
+    progress_stop_updater
+    progress_capture_monotonic_tenths
+    elapsed_tenths=$((PROGRESS_CAPTURED_TENTHS - PROGRESS_START_TENTHS))
+    (( elapsed_tenths >= 0 )) || elapsed_tenths=0
+    progress_capture_wall_time
+    suffix=$(progress_duration_suffix "$elapsed_tenths")
+    printf '\r\033[2K[%s] %s%s\n' "$PROGRESS_CAPTURED_WALL_TIME" \
+        "$PROGRESS_LABEL" "$suffix" >&2
+    OPERATIONAL_LAST_STREAM=stderr
+    PROGRESS_ACTIVE=0
+    PROGRESS_LABEL=''
+}
+
 operational_block() {
     local stream=$1
     local text=$2
     local line current_time timestamp_written=0
 
+    progress_cancel
     begin_operational_output "$stream"
     while IFS= read -r line || [[ -n $line ]]; do
         if [[ -z $line ]]; then
@@ -146,6 +283,7 @@ operational_continuation() {
     local text=$2
     local line
 
+    progress_cancel
     if (( ! OPERATIONAL_OUTPUT_STARTED )); then
         operational_block "$stream" "$text"
         return
@@ -163,6 +301,7 @@ operational_message() {
 finish_operational_output() {
     local end_date
 
+    progress_cancel
     (( OPERATIONAL_OUTPUT_STARTED )) || return 0
     end_date=$(date '+%Y-%m-%d') || end_date=$OPERATIONAL_START_DATE
     if [[ $end_date != "$OPERATIONAL_START_DATE" ]]; then
@@ -317,6 +456,7 @@ clear_active_temp_directories() {
 
 cleanup_on_exit() {
     local status=$?
+    progress_cancel
     clear_active_temp_directories
     finish_operational_output
     exit "$status"
@@ -749,7 +889,12 @@ process_source() {
     source_content_before=${source_before%:*}
     verbose "input: $source (${source_formats[$source_index]}, ${source_widths[$source_index]}x${source_heights[$source_index]})"
     verbose "inspecting document background: $source"
-    detect_background_cast "$source" || return 1
+    progress_start "inspecting document background: $source"
+    detect_background_cast "$source" || {
+        progress_cancel
+        return 1
+    }
+    progress_finish
     source_paper_brightness=$PAPER_BRIGHTNESS_PERCENT
     verbose "paper brightness estimate: ${source_paper_brightness}%"
     for selected_mode in "${selected_modes[@]}"; do
@@ -768,6 +913,7 @@ process_source() {
         ACTIVE_TEMP_DIRECTORIES[${#ACTIVE_TEMP_DIRECTORIES[@]}]=$temp_directory
         candidate=$temp_directory/${destination##*/}
         tonal_candidate=$temp_directory/tonal-cleanup.miff
+        progress_start "cleaning image ($selected_mode): $source"
         if (( ! strip_metadata )) &&
             [[ ,${source_profiles[$source_index]}, == *,[iI][cC][cC],* ]]; then
             icc_profile=$temp_directory/source.icc
@@ -849,6 +995,7 @@ process_source() {
             clear_active_temp_directories
             return 1
         }
+        progress_finish
         candidate_files[${#candidate_files[@]}]=$candidate
         candidate_destinations[${#candidate_destinations[@]}]=$destination
         candidate_directories[${#candidate_directories[@]}]=$temp_directory

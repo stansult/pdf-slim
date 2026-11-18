@@ -7,7 +7,7 @@
 set -o nounset
 
 PROGRAM=${0##*/}
-VERSION='1.6.3'
+VERSION='1.6.4'
 LOG_MAGIC='pdf-slim-log-v2'
 LOG_MAGIC_V1='pdf-slim-log-v1'
 LOG_WILDCARD_SIGNATURE='*'
@@ -15,6 +15,9 @@ CONVERSION_POLICY_REVISION='2'
 DEFAULT_IMAGE_INPUT_DPI='300'
 MINIMUM_CREDIBLE_IMAGE_DPI='150'
 AUTOMATIC_SCAN_JOB_CAP='5'
+PROGRESS_ELAPSED_THRESHOLD_TENTHS='50'
+PROGRESS_DURATION_THRESHOLD_TENTHS='100'
+PROGRESS_UPDATE_INTERVAL='0.2'
 PERFORMANCE_SCHEMA_VERSION='1'
 PERFORMANCE_HEADER=$'schema_version\trecorded_at\tprogram_version\tos\toutcome\tfailure_stage\tcleanup_mode\tquality_policy\tsource_bytes\toutput_bytes\tpages\ttotal_pixels\tmin_page_pixels\tmedian_page_pixels\tmax_page_pixels\tcolor_pages\tgray_pages\tworker_selection\trequested_workers\teffective_workers\tmax_active_workers\tlogical_cpus\tphysical_cpus\tmemory_bytes\ttotal_seconds\tinspection_seconds\tcleanup_seconds\tpage_sum_seconds\tpage_min_seconds\tpage_median_seconds\tpage_max_seconds\tpage_times_seconds\tassembly_seconds\tghostscript_seconds'
 
@@ -34,6 +37,13 @@ RECOVERED_ARTIFACT_PATH=''
 OPERATIONAL_OUTPUT_STARTED=0
 OPERATIONAL_START_DATE=''
 OPERATIONAL_LAST_STREAM='stderr'
+PROGRESS_ACTIVE=0
+PROGRESS_LABEL=''
+PROGRESS_START_WALL_TIME=''
+PROGRESS_START_TENTHS=0
+PROGRESS_UPDATER_PID=''
+PROGRESS_CAPTURED_WALL_TIME=''
+PROGRESS_CAPTURED_TENTHS=0
 VERBOSE=0
 SOURCE_CHECK_IDENTITY=''
 SOURCE_CHECK_METADATA_CHANGED=0
@@ -136,8 +146,11 @@ Important:
   Other output modes save the requested output but still return status 1.
   Primary operational and verbose messages are prefixed with local [HH:MM:SS].
   Verbose detail omits repeated program labels; errors and warnings retain them.
-  Continuation lines remain unprefixed. The local date is printed before the
-  first message and again after the last only if it changed.
+  Interactive non-verbose runs animate the current foreground stage; after 5
+  seconds they show elapsed time, and stages taking at least 10 seconds report
+  their duration. Redirected output is never animated. Continuation lines
+  remain unprefixed. The local date is printed before the first message and
+  again after the last only if it changed.
 
 Full documentation:
   https://github.com/stansult/pdf-slim
@@ -190,11 +203,135 @@ begin_operational_output() {
     OPERATIONAL_LAST_STREAM=$stream
 }
 
+progress_stderr_is_interactive() {
+    [[ -t 2 ]]
+}
+
+progress_capture_wall_time() {
+    PROGRESS_CAPTURED_WALL_TIME=$(date '+%H:%M:%S') || \
+        PROGRESS_CAPTURED_WALL_TIME='??:??:??'
+}
+
+progress_capture_monotonic_tenths() {
+    local value=''
+
+    if command -v perl >/dev/null 2>&1; then
+        value=$(perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+            -e 'printf "%d\n", clock_gettime(CLOCK_MONOTONIC) * 10' \
+            2>/dev/null) || value=''
+    fi
+    if [[ $value =~ ^[0-9]+$ ]]; then
+        PROGRESS_CAPTURED_TENTHS=$value
+    else
+        PROGRESS_CAPTURED_TENTHS=$((SECONDS * 10))
+    fi
+}
+
+progress_elapsed_suffix() {
+    local elapsed_tenths=$1
+
+    (( elapsed_tenths >= PROGRESS_ELAPSED_THRESHOLD_TENTHS )) || return 0
+    printf ' — elapsed %ss' "$((elapsed_tenths / 10))"
+}
+
+progress_duration_suffix() {
+    local elapsed_tenths=$1
+
+    (( elapsed_tenths >= PROGRESS_DURATION_THRESHOLD_TENTHS )) || return 0
+    printf ' (took %d.%ds)' "$((elapsed_tenths / 10))" \
+        "$((elapsed_tenths % 10))"
+}
+
+progress_spinner_frame() {
+    case $(($1 % 4)) in
+        0) printf '%s' '|' ;;
+        1) printf '%s' '/' ;;
+        2) printf '%s' '-' ;;
+        3) printf '%s' "\\" ;;
+    esac
+}
+
+progress_updater() {
+    local label=$1
+    local start_wall_time=$2
+    local started_seconds=$SECONDS
+    local frame=0 elapsed_tenths suffix spinner
+
+    while true; do
+        sleep "$PROGRESS_UPDATE_INTERVAL" || return 0
+        ((frame += 1))
+        elapsed_tenths=$(((SECONDS - started_seconds) * 10))
+        suffix=$(progress_elapsed_suffix "$elapsed_tenths")
+        spinner=$(progress_spinner_frame "$frame")
+        printf '\r\033[2K[%s] %s %s%s' "$start_wall_time" "$spinner" \
+            "$label" "$suffix" >&2
+    done
+}
+
+progress_launch_updater() {
+    progress_updater "$PROGRESS_LABEL" "$PROGRESS_START_WALL_TIME" &
+    PROGRESS_UPDATER_PID=$!
+}
+
+progress_stop_updater() {
+    if [[ -n $PROGRESS_UPDATER_PID ]]; then
+        kill "$PROGRESS_UPDATER_PID" 2>/dev/null || true
+        wait "$PROGRESS_UPDATER_PID" 2>/dev/null || true
+        PROGRESS_UPDATER_PID=''
+    fi
+}
+
+progress_cancel() {
+    (( PROGRESS_ACTIVE )) || return 0
+    progress_stop_updater
+    printf '\r\033[2K' >&2
+    PROGRESS_ACTIVE=0
+    PROGRESS_LABEL=''
+}
+
+progress_start() {
+    local label=$1
+    local spinner
+
+    progress_cancel
+    (( ! VERBOSE )) || return 0
+    progress_stderr_is_interactive || return 0
+    begin_operational_output stderr
+    progress_capture_wall_time
+    PROGRESS_START_WALL_TIME=$PROGRESS_CAPTURED_WALL_TIME
+    progress_capture_monotonic_tenths
+    PROGRESS_START_TENTHS=$PROGRESS_CAPTURED_TENTHS
+    PROGRESS_LABEL=$label
+    PROGRESS_ACTIVE=1
+    spinner=$(progress_spinner_frame 0)
+    printf '\r\033[2K[%s] %s %s' "$PROGRESS_START_WALL_TIME" "$spinner" \
+        "$PROGRESS_LABEL" >&2
+    progress_launch_updater
+}
+
+progress_finish() {
+    local elapsed_tenths suffix
+
+    (( PROGRESS_ACTIVE )) || return 0
+    progress_stop_updater
+    progress_capture_monotonic_tenths
+    elapsed_tenths=$((PROGRESS_CAPTURED_TENTHS - PROGRESS_START_TENTHS))
+    (( elapsed_tenths >= 0 )) || elapsed_tenths=0
+    progress_capture_wall_time
+    suffix=$(progress_duration_suffix "$elapsed_tenths")
+    printf '\r\033[2K[%s] %s%s\n' "$PROGRESS_CAPTURED_WALL_TIME" \
+        "$PROGRESS_LABEL" "$suffix" >&2
+    OPERATIONAL_LAST_STREAM=stderr
+    PROGRESS_ACTIVE=0
+    PROGRESS_LABEL=''
+}
+
 operational_block() {
     local stream=$1
     local text=$2
     local line current_time timestamp_written=0
 
+    progress_cancel
     begin_operational_output "$stream"
     while IFS= read -r line || [[ -n $line ]]; do
         if [[ -z $line ]]; then
@@ -216,6 +353,7 @@ operational_continuation() {
     local text=$2
     local line
 
+    progress_cancel
     if (( ! OPERATIONAL_OUTPUT_STARTED )); then
         operational_block "$stream" "$text"
         return
@@ -236,6 +374,7 @@ operational_message() {
 finish_operational_output() {
     local end_date
 
+    progress_cancel
     (( OPERATIONAL_OUTPUT_STARTED )) || return 0
     end_date=$(date '+%Y-%m-%d') || end_date=$OPERATIONAL_START_DATE
     if [[ $end_date != "$OPERATIONAL_START_DATE" ]]; then
@@ -1740,6 +1879,7 @@ clean_scan_pdf() {
     local -a worker_pages=()
 
     verbose "inspecting PDF for safe image-backed cleanup: $source"
+    progress_start "inspecting scan: $source"
     if (( METRICS_ACTIVE )); then
         METRIC_FAILURE_STAGE=inspection
         stage_start=$SECONDS
@@ -1751,8 +1891,10 @@ clean_scan_pdf() {
         if (( METRICS_ACTIVE )); then
             METRIC_INSPECTION_SECONDS=$((SECONDS - stage_start))
         fi
+        progress_cancel
         return 1
     fi
+    progress_finish
     SCAN_CLEAN_ACTION=clean
     if (( SCAN_HAS_SEARCHABLE_TEXT || SCAN_HAS_VISIBLE_VECTOR_CONTENT )); then
         if ! prompt_scan_content_action "$source"; then
@@ -1802,6 +1944,7 @@ clean_scan_pdf() {
     fi
     mkdir "$scan_directory/rendered" "$scan_directory/cleaned" \
         "$scan_directory/workers" || return 1
+    progress_start "cleaning $SCAN_PAGE_COUNT $page_word: $source"
     while (( next_page <= SCAN_PAGE_COUNT || ${#worker_pids[@]} )); do
         while (( ! failed && next_page <= SCAN_PAGE_COUNT && \
             ${#worker_pids[@]} < jobs )); do
@@ -1840,6 +1983,7 @@ clean_scan_pdf() {
             fi
         fi
         if [[ -s $worker_log ]]; then
+            progress_cancel
             OPERATIONAL_LAST_STREAM=stderr
             while IFS= read -r rendered; do
                 raw_output_line stderr "$rendered"
@@ -1853,12 +1997,17 @@ clean_scan_pdf() {
     if (( METRICS_ACTIVE )); then
         METRIC_CLEANUP_SECONDS=$((SECONDS - stage_start))
     fi
-    (( failed == 0 )) || return 1
+    if (( failed )); then
+        progress_cancel
+        return 1
+    fi
+    progress_finish
 
     if (( METRICS_ACTIVE )); then
         METRIC_FAILURE_STAGE=assembly
         stage_start=$SECONDS
     fi
+    progress_start "assembling cleaned PDF: $source"
     page=1
     while (( page <= SCAN_PAGE_COUNT )); do
         cleaned=$scan_directory/cleaned/page-$page.png
@@ -1895,6 +2044,7 @@ clean_scan_pdf() {
         error "scan cleanup produced no valid nonempty PDF: $source"
         return 1
     fi
+    progress_finish
     if (( METRICS_ACTIVE )); then
         METRIC_ASSEMBLY_SECONDS=$((SECONDS - stage_start))
     fi
@@ -1941,6 +2091,7 @@ clean_image_to_pdf() {
     verbose "PDF image density: ${output_x_dpi}x${output_y_dpi} DPI"
 
     verbose "cleaning raster image ($cleanup_mode): $source"
+    progress_start "cleaning raster image ($cleanup_mode): $source"
     run_scan_command 'image scan cleanup' "$source" "$timeout_command" \
         "$timeout_duration" "$scan_clean_command" \
         --input "$source" --output "$cleaned_image" \
@@ -1950,7 +2101,9 @@ clean_image_to_pdf() {
         error "scan cleanup produced no valid image: $source"
         return 1
     fi
+    progress_finish
     verbose "assembling cleaned image as PDF: $source"
+    progress_start "assembling cleaned image as PDF: $source"
     run_scan_command 'cleaned image PDF assembly' "$source" "$timeout_command" \
         "$timeout_duration" "$magick_command" -units PixelsPerInch \
         -density "${output_x_dpi}x${output_y_dpi}" "$cleaned_image" \
@@ -1959,6 +2112,7 @@ clean_image_to_pdf() {
         error "scan cleanup produced no valid nonempty PDF: $source"
         return 1
     fi
+    progress_finish
 }
 
 convert_pdf() {
@@ -2477,6 +2631,7 @@ process_source_core() {
         fi
     fi
     verbose "optimizing PDF with Ghostscript: $source"
+    progress_start "optimizing PDF: $source"
     if (( METRICS_ACTIVE )); then
         METRIC_FAILURE_STAGE=ghostscript
         metrics_stage_start=$SECONDS
@@ -2487,9 +2642,11 @@ process_source_core() {
         if (( METRICS_ACTIVE )); then
             METRIC_GHOSTSCRIPT_SECONDS=$((SECONDS - metrics_stage_start))
         fi
+        progress_cancel
         clear_active_files
         return 1
     fi
+    progress_finish
     if (( METRICS_ACTIVE )); then
         METRIC_GHOSTSCRIPT_SECONDS=$((SECONDS - metrics_stage_start))
         METRIC_OUTPUT_BYTES=$(file_size "$candidate" 2>/dev/null || printf '%s' '-')
@@ -2669,6 +2826,7 @@ process_source() {
 
 cleanup_active_candidate() {
     local status=$?
+    progress_cancel
     clear_active_files
     if (( METRICS_ACTIVE )); then
         if (( status >= 128 )); then

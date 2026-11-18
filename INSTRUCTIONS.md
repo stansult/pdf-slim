@@ -58,7 +58,7 @@ INSTRUCTIONS.md                This handoff
 tests/                         Automated suite and command doubles
 ```
 
-The current `pdf-slim.sh` 1.6.3 implementation provides safe
+The current `pdf-slim.sh` 1.6.4 implementation provides safe
 traversal, dry-run planning, reliable
 Ghostscript conversion, atomic output publication, strictly-smaller replacement,
 metadata preservation, policy-aware versioned replacement history in the user
@@ -71,7 +71,7 @@ concurrency, timing, size, machine-capacity, and outcome metrics for future
 policy tuning; normal output remains unchanged and verbose mode reports a
 one-line summary.
 
-`scan-clean.sh` 1.2.2 implements adaptive gentle, standard,
+`scan-clean.sh` 1.2.3 implements adaptive gentle, standard,
 and strong cleanup for single-frame raster images. It accepts one image, quoted
 glob, or nonrecursive directory; supports exact, automatic, and output-directory
 publication; preserves image metadata and transparency where supported; and
@@ -243,6 +243,12 @@ The user has approved these decisions:
     emit `processing N of TOTAL:`. Timestamp only the primary line of a logical
     output group; leave explanatory and external-tool continuation lines
     unprefixed. Leave help, version, and blank separator lines undecorated.
+    In interactive non-verbose runs, animate only the current foreground stage
+    on standard error. Keep its start timestamp fixed, add integer elapsed time
+    after five seconds, and add a one-decimal duration at completion only for
+    stages taking at least ten seconds. Use monotonic time for durations, emit
+    no terminal controls when redirected or verbose, and stop and clear the
+    updater on completion, failure, or interruption.
 15. Support `-v` / `--verbose`. Send resolved settings, major
     processing stages, size comparisons, and replacement-log decisions to
     standard error without changing normal output or safety behavior. Timestamp
